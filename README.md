@@ -49,6 +49,29 @@ EventSim 是一个面向 Hackathon 演示的交互式事件模拟器。
 - Node.js 18+（建议 20+）
 - npm 9+
 
+## 3.1 Claude API 配置（.env）
+
+在 `backend/` 下创建 `.env`（可从 `backend/.env.example` 复制）：
+
+```bash
+ANTHROPIC_API_KEY=your_key_here
+ANTHROPIC_VERSION=2023-06-01
+ANTHROPIC_API_URL=https://api.anthropic.com/v1/messages
+
+ANTHROPIC_MODEL=claude-3-5-haiku-latest
+ANTHROPIC_MODEL_BASIC=claude-3-5-haiku-latest
+ANTHROPIC_MODEL_CHATBOT=claude-3-5-sonnet-latest
+ANTHROPIC_MODEL_BRANCH=claude-3-5-sonnet-latest
+```
+
+模型路由配置文件在：`backend/src/config/models.js`
+
+- `basic`：用于 `/api/plan`、`/api/expand`
+- `chatbot`：用于 `/api/chat`
+- `branch`：用于 `/api/branch`
+
+如果没有配置 `ANTHROPIC_API_KEY`，后端会自动回退到本地规则生成（fallback）。
+
 ## 4. 一步一步启动（明确指令）
 
 请开两个终端窗口。
