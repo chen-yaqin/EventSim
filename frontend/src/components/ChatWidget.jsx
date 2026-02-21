@@ -25,13 +25,16 @@ export default function ChatWidget({
         <section className="chat-panel card">
           <h4>Role Chatbot</h4>
           <p className="muted">Node: {selectedNode?.title || "No node selected"}</p>
-          <select value={roleId} onChange={(e) => onRoleChange(e.target.value)}>
-            {ROLES.map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.label}
-              </option>
-            ))}
-          </select>
+          <div className="chat-role-row">
+            <label>select a role</label>
+            <select value={roleId} onChange={(e) => onRoleChange(e.target.value)}>
+              {ROLES.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="chat-box">
             {(messages || []).map((msg) => (
               <div key={msg.id} className={`chat-line chat-${msg.sender}`}>

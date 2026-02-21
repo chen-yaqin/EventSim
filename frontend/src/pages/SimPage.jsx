@@ -80,6 +80,9 @@ export default function SimPage() {
   async function handleNodeClick(_evt, node) {
     setSelectedId(node.id);
     setBranchInput("");
+    if (node.id !== "root") {
+      openBranchModalForNode(node.id);
+    }
     if (expanded[node.id] || !eventHash) return;
 
     setLoadingExpand(true);

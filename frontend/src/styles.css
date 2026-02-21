@@ -271,10 +271,19 @@ select {
 .world-node {
   color: inherit;
   font-size: 13px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: box-shadow 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
 }
 
 .world-node p {
   margin: 8px 0;
+}
+
+.world-node.is-selected {
+  border-color: rgba(236, 254, 255, 0.95);
+  box-shadow: 0 0 0 2px rgba(186, 230, 253, 0.5), 0 10px 20px rgba(2, 132, 199, 0.25);
+  transform: translateY(-1px);
 }
 
 .world-node-head {
@@ -340,6 +349,26 @@ select {
   font: inherit;
 }
 
+.chat-role-row {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 8px;
+}
+
+.chat-role-row label {
+  font-size: 11px;
+  text-transform: lowercase;
+  color: #64748b;
+}
+
+.chat-role-row select {
+  font-size: 12px;
+  padding: 5px 8px;
+  height: 30px;
+  border-radius: 8px;
+  max-width: 180px;
+}
+
 .skeleton {
   height: 12px;
   border-radius: 6px;
@@ -364,6 +393,7 @@ select {
   display: grid;
   place-items: center;
   padding: 20px;
+  z-index: 40;
 }
 
 .modal {

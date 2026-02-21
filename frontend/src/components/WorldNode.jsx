@@ -1,15 +1,15 @@
 import { Handle, Position } from "reactflow";
 
-export default function WorldNode({ data }) {
+export default function WorldNode({ data, selected }) {
   return (
-    <div className="world-node">
+    <div className={`world-node ${selected ? "is-selected" : ""}`}>
       <Handle type="target" position={Position.Top} />
       <div className="world-node-head">
         <strong>{data.title}</strong>
         <div className="node-actions">
           {data.nodeType === "world" && (
             <button
-              className="node-toggle"
+              className="node-toggle nodrag nopan"
               onClick={(e) => {
                 e.stopPropagation();
                 data.onOpenBranch(data.id);
@@ -20,7 +20,7 @@ export default function WorldNode({ data }) {
           )}
           {data.hasChildren && (
             <button
-              className="node-toggle"
+              className="node-toggle nodrag nopan"
               onClick={(e) => {
                 e.stopPropagation();
                 data.onToggleCollapse(data.id);
