@@ -36,6 +36,16 @@ export default function ScenarioForm({ form, onChange, onGenerate, loading }) {
           <option>impact</option>
         </select>
       </div>
+      <div className="row">
+        <label>
+          <input
+            type="checkbox"
+            checked={Boolean(form.useCache)}
+            onChange={(e) => onChange({ ...form, useCache: e.target.checked })}
+          />{" "}
+          Use cache
+        </label>
+      </div>
 
       <button className="btn" disabled={loading || !form.eventText.trim()} onClick={onGenerate}>
         {loading ? "Generating..." : "Generate Graph"}

@@ -6,7 +6,7 @@ import ScenarioForm from "../components/ScenarioForm.jsx";
 import SidePanel from "../components/SidePanel.jsx";
 import ToastStack from "../components/ToastStack.jsx";
 import TopBar from "../components/TopBar.jsx";
-import { fetchBranch, fetchChat, fetchExpand, fetchPlan } from "../lib/api.js";
+import { fetchBranch, fetchChat, fetchDemo, fetchExpand, fetchPlan } from "../lib/api.js";
 import { toReactFlow } from "../lib/graph.js";
 
 export default function SimPage() {
@@ -16,7 +16,8 @@ export default function SimPage() {
     eventText: "",
     timeframe: "1 year",
     stakes: "medium",
-    goal: "growth"
+    goal: "growth",
+    useCache: true
   });
   const [graph, setGraph] = useState({ nodes: [], edges: [] });
   const [eventHash, setEventHash] = useState("");
@@ -50,13 +51,29 @@ export default function SimPage() {
   async function handleGenerate() {
     setLoadingPlan(true);
     try {
+      if (demoMode) {
+        const demo = await fetchDemo("offer-decision");
+        setGraph(demo.graph || { nodes: [], edges: [] });
+        setEventHash(demo.meta?.eventHash || `demo_${demo.id || "offer_decision"}`);
+        setSelectedId("root");
+        setExpanded({});
+        setChatByKey({});
+        setChatInput("");
+        setBranchInput("");
+        setBranchModalOpen(false);
+        setBranchTargetId(null);
+        setCallsUsed((x) => x + 1);
+        toast("Demo graph loaded (no API key required)", "success");
+        return;
+      }
       const payload = {
         eventText: form.eventText.trim(),
         options: {
           timeframe: form.timeframe,
           stakes: form.stakes,
           goal: form.goal
-        }
+        },
+        useCache: form.useCache
       };
       const result = await fetchPlan(payload);
       setGraph(result.graph);
@@ -87,7 +104,20 @@ export default function SimPage() {
 
     setLoadingExpand(true);
     try {
-      const result = await fetchExpand({ eventHash, nodeId: node.id });
+      const currentNode = graph.nodes.find((n) => n.id === node.id) || null;
+      const lineage = buildLineage(graph.nodes, node.id);
+      const result = await fetchExpand({
+        eventHash,
+        nodeId: node.id,
+        nodeTitle: currentNode?.title || "",
+        nodeType: currentNode?.type || "",
+        nodeOneLiner: currentNode?.one_liner || "",
+        nodeDelta: currentNode?.delta || "",
+        nodeTags: Array.isArray(currentNode?.tags) ? currentNode.tags : [],
+        parentId: currentNode?.parentId || null,
+        lineage,
+        useCache: form.useCache
+      });
       setExpanded((prev) => ({ ...prev, [node.id]: result.details }));
       setCallsUsed((x) => x + 1);
       if (result.meta.cache === "hit") toast("Node details from cache", "info");
@@ -115,10 +145,16 @@ export default function SimPage() {
         nodeTitle: selectedNode.title,
         roleId,
         message: userText,
-        history: previous.map((item) => ({ sender: item.sender, text: item.text }))
+        history: previous.map((item) => ({ sender: item.sender, text: item.text })),
+        useCache: form.useCache
       });
-      const reply = result.reply;
-      const assistantText = `${reply.answer}\n- ${reply.bullets.join("\n- ")}\nQ: ${reply.nextQuestion}`;
+      const reply = result.reply || {};
+      const safeBullets = Array.isArray(reply.bullets) && reply.bullets.length
+        ? reply.bullets
+        : ["Clarify your key assumption", "Choose one reversible next step", "Set a short review checkpoint"];
+      const assistantText = `${reply.answer || "I could not generate a model response, using fallback guidance."}\n- ${safeBullets.join(
+        "\n- "
+      )}\nQ: ${reply.nextQuestion || "What should we test in the next 48 hours?"}`;
       const assistantMessage = {
         id: `${Date.now()}_a`,
         sender: "assistant",
@@ -128,6 +164,13 @@ export default function SimPage() {
       setChatByKey((prev) => ({ ...prev, [roleChatKey]: [...(prev[roleChatKey] || []), assistantMessage] }));
       setCallsUsed((x) => x + 1);
     } catch (error) {
+      const fallbackMessage = {
+        id: `${Date.now()}_e`,
+        sender: "assistant",
+        roleTitle: "Fallback Assistant",
+        text: "Model response failed. Try again, or continue with one concrete next step and a 48-hour checkpoint."
+      };
+      setChatByKey((prev) => ({ ...prev, [roleChatKey]: [...(prev[roleChatKey] || []), fallbackMessage] }));
       toast(error.message, error.status === 429 ? "warn" : "error");
     } finally {
       setChatLoading(false);
@@ -143,8 +186,13 @@ export default function SimPage() {
         eventHash,
         parentNodeId: branchTargetNode.id,
         parentTitle: branchTargetNode.title,
+        parentBranchLabel: branchTargetNode.data?.branchLabel || "",
+        parentOneLiner: branchTargetNode.one_liner || "",
+        parentDelta: branchTargetNode.delta || "",
+        parentTags: Array.isArray(branchTargetNode.tags) ? branchTargetNode.tags : [],
         userQuestion: branchInput.trim(),
-        lineage
+        lineage,
+        useCache: form.useCache
       });
       setGraph((prev) => mergeGraph(prev, result, branchTargetNode.id));
       setCallsUsed((x) => x + 1);

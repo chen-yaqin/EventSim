@@ -9,13 +9,27 @@ export function toReactFlow(graph, onToggleCollapse, onOpenBranch) {
 
   const flowNodes = [];
   const depths = [...byDepth.keys()].sort((a, b) => a - b);
+  const rowMeta = new Map();
   for (const depth of depths) {
     const row = byDepth.get(depth);
-    const gapX = 300;
-    const y = 60 + depth * 220;
+    const estHeights = row.map((node) => estimateNodeHeight(node));
+    rowMeta.set(depth, {
+      maxHeight: Math.max(...estHeights, 180),
+      estWidths: row.map((node) => estimateNodeWidth(node))
+    });
+  }
+
+  let yCursor = 40;
+  for (const depth of depths) {
+    const row = byDepth.get(depth);
+    const { maxHeight, estWidths } = rowMeta.get(depth);
+    const gapX = 80;
+    const rowWidth = estWidths.reduce((sum, w) => sum + w, 0) + Math.max(0, row.length - 1) * gapX;
+    const y = yCursor;
+    let xCursor = 260 - rowWidth / 2;
     row.forEach((node, index) => {
-      const width = (row.length - 1) * gapX;
-      const x = 200 + index * gapX - width / 2;
+      const nodeWidth = estWidths[index] || 320;
+      const x = xCursor;
       flowNodes.push({
         id: node.id,
         type: "worldNode",
@@ -34,7 +48,9 @@ export function toReactFlow(graph, onToggleCollapse, onOpenBranch) {
         },
         style: styleForType(node.type)
       });
+      xCursor += nodeWidth + gapX;
     });
+    yCursor += maxHeight + 120;
   }
 
   const flowEdges = visibleEdges.map((edge) => ({
@@ -96,7 +112,7 @@ function styleForType(type) {
       color: "#fff",
       border: "1px solid #334155",
       borderRadius: 14,
-      width: 280,
+      width: 340,
       padding: 12
     };
   }
@@ -106,7 +122,23 @@ function styleForType(type) {
     color: "#f0fdfa",
     border: "1px solid #0d9488",
     borderRadius: 12,
-    width: 280,
+    width: 340,
     padding: 10
   };
+}
+
+function estimateNodeHeight(node) {
+  const title = String(node.title || "");
+  const oneLiner = String(node.one_liner || "");
+  const tags = Array.isArray(node.tags) ? node.tags.length : 0;
+  const titleLines = Math.ceil(title.length / 30);
+  const bodyLines = Math.ceil(oneLiner.length / 42);
+  return 130 + titleLines * 24 + bodyLines * 22 + Math.ceil(tags / 3) * 28;
+}
+
+function estimateNodeWidth(node) {
+  const title = String(node.title || "");
+  if (title.length > 55) return 390;
+  if (title.length > 35) return 360;
+  return 340;
 }

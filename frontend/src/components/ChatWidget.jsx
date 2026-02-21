@@ -35,6 +35,14 @@ export default function ChatWidget({
               ))}
             </select>
           </div>
+          <div className="chat-box">
+            {(messages || []).map((msg) => (
+              <div key={msg.id} className={`chat-line chat-${msg.sender}`}>
+                <strong>{msg.sender === "user" ? "You" : msg.roleTitle || "Assistant"}:</strong> {msg.text}
+              </div>
+            ))}
+            {!messages?.length && <p className="muted">Select a node and start asking questions.</p>}
+          </div>
 
           <textarea
             value={input}

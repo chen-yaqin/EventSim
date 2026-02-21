@@ -47,7 +47,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.post("/api/plan", async (req, res) => {
-  const { eventText, options = {} } = req.body || {};
+  const { eventText, options = {}, useCache = true } = req.body || {};
   if (!eventText || typeof eventText !== "string") {
     return res.status(400).json({ error: "eventText is required" });
   }
@@ -60,12 +60,12 @@ app.post("/api/plan", async (req, res) => {
   }
 
   const eventHash = hashText(eventText.trim().toLowerCase());
-  const promptVersion = "v3";
+  const promptVersion = "v6";
   const key = hashText(JSON.stringify({ t: eventText, o: options, p: promptVersion }));
   const cacheFile = path.join(CACHE_DIR, `plan_${key}.json`);
-  if (fs.existsSync(cacheFile)) {
+  if (useCache && fs.existsSync(cacheFile)) {
     const cached = readJson(cacheFile);
-    return res.json({ ...cached, meta: { ...cached.meta, cache: "hit" } });
+    return res.json({ ...cached, meta: { ...cached.meta, cache: "hit", cacheEnabled: true } });
   }
 
   const generated = await withProviderFallback(
@@ -74,18 +74,25 @@ app.post("/api/plan", async (req, res) => {
     "plan"
   );
   const payload = {
-    graph: generated.data,
+    graph: {
+      nodes: generated.data?.nodes || [],
+      edges: generated.data?.edges || []
+    },
     meta: {
       cache: "miss",
+      cacheEnabled: Boolean(useCache),
       provider: generated.provider,
       fallbackReason: generated.fallbackReason,
+      contentFallback: Boolean(generated.data?.__contentFallback),
+      contentFallbackReason: generated.data?.__contentFallbackReason || null,
       eventHash,
       promptVersion,
       generatedAt: new Date().toISOString(),
       tokenEstimate: 640
     }
   };
-  writeJson(cacheFile, payload);
+  if (useCache) writeJson(cacheFile, payload);
+  if (!useCache) payload.meta.cache = "bypass";
   return res.json(payload);
 });
 
@@ -94,28 +101,65 @@ app.post("/api/expand", async (req, res) => {
   if (isRateLimited(ip, 6_000, 8)) {
     return res.status(429).json({ error: "rate_limited", message: "Too many requests. Please wait a few seconds." });
   }
-  const { eventHash, nodeId } = req.body || {};
+  const {
+    eventHash,
+    nodeId,
+    nodeTitle,
+    nodeType,
+    nodeOneLiner,
+    nodeDelta,
+    nodeTags = [],
+    parentId,
+    lineage = [],
+    useCache = true
+  } = req.body || {};
   if (!eventHash || !nodeId) return res.status(400).json({ error: "eventHash and nodeId are required" });
 
-  const promptVersion = "v3";
-  const key = hashText(JSON.stringify({ eventHash, nodeId, promptVersion }));
+  const promptVersion = "v8";
+  const key = hashText(
+    JSON.stringify({
+      eventHash,
+      nodeId,
+      nodeTitle,
+      nodeType,
+      nodeOneLiner,
+      nodeDelta,
+      nodeTags,
+      parentId,
+      lineage,
+      promptVersion
+    })
+  );
   const cacheFile = path.join(CACHE_DIR, `expand_${key}.json`);
-  if (fs.existsSync(cacheFile)) {
+  if (useCache && fs.existsSync(cacheFile)) {
     const cached = readJson(cacheFile);
-    return res.json({ ...cached, meta: { ...cached.meta, cache: "hit" } });
+    return res.json({ ...cached, meta: { ...cached.meta, cache: "hit", cacheEnabled: true } });
   }
 
+  const nodeContext = {
+    title: nodeTitle || "",
+    type: nodeType || "",
+    oneLiner: nodeOneLiner || "",
+    delta: nodeDelta || "",
+    tags: Array.isArray(nodeTags) ? nodeTags : [],
+    parentId: parentId || null,
+    lineage: Array.isArray(lineage) ? lineage : []
+  };
   const generated = await withProviderFallback(
-    () => buildNodeDetailsWithClaude(nodeId),
-    () => buildNodeDetailsFallback(nodeId),
+    () => buildNodeDetailsWithClaude(nodeId, nodeContext),
+    () => buildNodeDetailsFallback(nodeId, nodeContext),
     "expand"
   );
+  const { __contentFallback, __contentFallbackReason, ...detailsBody } = generated.data || {};
   const payload = {
-    details: generated.data,
+    details: detailsBody,
     meta: {
       cache: "miss",
+      cacheEnabled: Boolean(useCache),
       provider: generated.provider,
       fallbackReason: generated.fallbackReason,
+      contentFallback: Boolean(__contentFallback),
+      contentFallbackReason: __contentFallbackReason || null,
       eventHash,
       nodeId,
       promptVersion,
@@ -123,7 +167,8 @@ app.post("/api/expand", async (req, res) => {
       tokenEstimate: 250
     }
   };
-  writeJson(cacheFile, payload);
+  if (useCache) writeJson(cacheFile, payload);
+  if (!useCache) payload.meta.cache = "bypass";
   return res.json(payload);
 });
 
@@ -132,24 +177,53 @@ app.post("/api/branch", async (req, res) => {
   if (isRateLimited(ip, 6_000, 6)) {
     return res.status(429).json({ error: "rate_limited", message: "Too many requests. Please wait a few seconds." });
   }
-  const { eventHash, parentNodeId, parentTitle, userQuestion, lineage = [] } = req.body || {};
+  const {
+    eventHash,
+    parentNodeId,
+    parentTitle,
+    parentBranchLabel,
+    parentOneLiner,
+    parentDelta,
+    parentTags = [],
+    userQuestion,
+    lineage = [],
+    useCache = true
+  } = req.body || {};
   if (!eventHash || !parentNodeId) return res.status(400).json({ error: "eventHash and parentNodeId are required" });
   if (isRestricted(userQuestion || "")) {
     return res.status(400).json({ error: "restricted_content", message: "This query category is not supported." });
   }
 
-  const promptVersion = "v3";
-  const key = hashText(JSON.stringify({ eventHash, parentNodeId, parentTitle, userQuestion, lineage, promptVersion }));
+  const promptVersion = "v6";
+  const key = hashText(
+    JSON.stringify({
+      eventHash,
+      parentNodeId,
+      parentTitle,
+      parentBranchLabel,
+      parentOneLiner,
+      parentDelta,
+      parentTags,
+      userQuestion,
+      lineage,
+      promptVersion
+    })
+  );
   const cacheFile = path.join(CACHE_DIR, `branch_${key}.json`);
-  if (fs.existsSync(cacheFile)) {
+  if (useCache && fs.existsSync(cacheFile)) {
     const cached = readJson(cacheFile);
-    return res.json({ ...cached, meta: { ...cached.meta, cache: "hit" } });
+    return res.json({ ...cached, meta: { ...cached.meta, cache: "hit", cacheEnabled: true } });
   }
 
   const parentLabel = parentTitle || parentNodeId;
+  const parentContext = {
+    oneLiner: parentOneLiner || "",
+    delta: parentDelta || "",
+    tags: Array.isArray(parentTags) ? parentTags : []
+  };
   const generated = await withProviderFallback(
-    () => buildBranchChildrenWithClaude(parentNodeId, parentLabel, userQuestion, lineage),
-    () => buildBranchChildrenFallback(parentNodeId, parentLabel, userQuestion, lineage),
+    () => buildBranchChildrenWithClaude(parentNodeId, parentLabel, parentBranchLabel, userQuestion, lineage, parentContext),
+    () => buildBranchChildrenFallback(parentNodeId, parentLabel, parentBranchLabel, userQuestion, lineage, parentContext),
     "branch"
   );
   const payload = {
@@ -157,14 +231,18 @@ app.post("/api/branch", async (req, res) => {
     edges: generated.data.edges,
     meta: {
       cache: "miss",
+      cacheEnabled: Boolean(useCache),
       provider: generated.provider,
       fallbackReason: generated.fallbackReason,
+      contentFallback: Boolean(generated.data?.__contentFallback),
+      contentFallbackReason: generated.data?.__contentFallbackReason || null,
       parentNodeId,
       generatedAt: new Date().toISOString(),
       tokenEstimate: 420
     }
   };
-  writeJson(cacheFile, payload);
+  if (useCache) writeJson(cacheFile, payload);
+  if (!useCache) payload.meta.cache = "bypass";
   return res.json(payload);
 });
 
@@ -173,7 +251,7 @@ app.post("/api/chat", async (req, res) => {
   if (isRateLimited(ip, 4_000, 10)) {
     return res.status(429).json({ error: "rate_limited", message: "Too many chat requests. Slow down briefly." });
   }
-  const { eventHash, nodeId, nodeTitle, roleId, message, history = [] } = req.body || {};
+  const { eventHash, nodeId, nodeTitle, roleId, message, history = [], useCache = true } = req.body || {};
   if (!eventHash || !nodeId || !roleId || !message) {
     return res.status(400).json({ error: "eventHash, nodeId, roleId, message are required" });
   }
@@ -186,32 +264,37 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
-  const promptVersion = "v3";
+  const promptVersion = "v7";
   const key = hashText(JSON.stringify({ eventHash, nodeId, roleId, message, history, promptVersion }));
   const cacheFile = path.join(CACHE_DIR, `chat_${key}.json`);
-  if (fs.existsSync(cacheFile)) {
+  if (useCache && fs.existsSync(cacheFile)) {
     const cached = readJson(cacheFile);
-    return res.json({ ...cached, meta: { ...cached.meta, cache: "hit" } });
+    return res.json({ ...cached, meta: { ...cached.meta, cache: "hit", cacheEnabled: true } });
   }
 
   const generated = await withProviderFallback(
     () => buildRoleReplyWithClaude(role, nodeTitle || nodeId, message, history),
-    () => buildRoleReplyFallback(role, nodeTitle || nodeId, message),
+    () => buildRoleReplyFallback(role, nodeTitle || nodeId, message, history),
     "chat"
   );
+  const { __contentFallback, __contentFallbackReason, ...replyBody } = generated.data || {};
   const payload = {
-    reply: generated.data,
+    reply: replyBody,
     meta: {
       cache: "miss",
+      cacheEnabled: Boolean(useCache),
       provider: generated.provider,
       fallbackReason: generated.fallbackReason,
+      contentFallback: Boolean(__contentFallback),
+      contentFallbackReason: __contentFallbackReason || null,
       roleId,
       nodeId,
       generatedAt: new Date().toISOString(),
       tokenEstimate: 180
     }
   };
-  writeJson(cacheFile, payload);
+  if (useCache) writeJson(cacheFile, payload);
+  if (!useCache) payload.meta.cache = "bypass";
   return res.json(payload);
 });
 
@@ -243,8 +326,29 @@ async function buildInitialGraphWithClaude(eventText, options) {
     messages: [{ role: "user", content: `Event:${eventText}\nTimeframe:${timeframe}\nStakes:${stakes}\nGoal:${goal}` }],
     maxTokens: 500
   });
-  const parsed = safeJsonParse(text);
-  if (!parsed?.worlds || parsed.worlds.length !== 3) return buildInitialGraphFallback(eventText, options);
+  let parsed = safeJsonParse(text);
+  let worlds = normalizePlanWorlds(parsed);
+  if (!worlds) {
+    const retryText = await callClaudeText({
+      model: getModelForTask("basic"),
+      system: [
+        "You are EventSim planner.",
+        "Output must be valid minified JSON only.",
+        "No markdown, no prose, no code fences.",
+        "Required schema:",
+        '{"worlds":[{"suffix":"A","distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
+        "Exactly 3 items."
+      ].join(" "),
+      messages: [{ role: "user", content: `Event:${eventText}\nTimeframe:${timeframe}\nStakes:${stakes}\nGoal:${goal}` }],
+      maxTokens: 420
+    });
+    parsed = safeJsonParse(retryText);
+    worlds = normalizePlanWorlds(parsed);
+  }
+  if (!worlds) {
+    console.warn("[plan] content fallback: invalid JSON schema from provider");
+    return markContentFallback(buildInitialGraphFallback(eventText, options), "invalid_plan_json_schema");
+  }
 
   const rootId = "root";
   const nodes = [
@@ -263,7 +367,7 @@ async function buildInitialGraphWithClaude(eventText, options) {
     }
   ];
   const edges = [];
-  for (const world of parsed.worlds.slice(0, 3)) {
+  for (const world of worlds) {
     const suffix = String(world.suffix || "A").toLowerCase();
     const id = `world_${suffix}`;
     nodes.push({
@@ -281,19 +385,33 @@ async function buildInitialGraphWithClaude(eventText, options) {
     });
     edges.push({ id: `e_${rootId}_${id}`, source: rootId, target: id, label: "counterfactual" });
   }
-  return { nodes, edges };
+  return { nodes, edges, __contentFallback: false, __contentFallbackReason: null };
 }
 
-async function buildNodeDetailsWithClaude(nodeId) {
+async function buildNodeDetailsWithClaude(nodeId, nodeContext = {}) {
+  const tagText = Array.isArray(nodeContext.tags) ? nodeContext.tags.join(", ") : "";
+  const lineageText = lineageToText(nodeContext.lineage || []);
   const text = await callClaudeText({
     model: getModelForTask("basic"),
-    system:
-      "Return JSON only with consequences(3), why_it_changes, next_question, risk_flags(max2). Keep concise.",
-    messages: [{ role: "user", content: `Node id: ${nodeId}` }],
+    system: [
+      "You are EventSim node analyst.",
+      "Use node context to produce specific, non-generic analysis.",
+      "Do not mention lack of context if context is provided.",
+      "Return JSON only with consequences(3), why_it_changes, next_question, risk_flags(max2). Keep concise."
+    ].join(" "),
+    messages: [
+      {
+        role: "user",
+        content: `NodeId:${nodeId}\nNodeTitle:${nodeContext.title || ""}\nNodeType:${nodeContext.type || ""}\nOneLiner:${nodeContext.oneLiner || ""}\nDelta:${nodeContext.delta || ""}\nTags:${tagText}\nParentId:${nodeContext.parentId || ""}\nLineage:${lineageText}`
+      }
+    ],
     maxTokens: 260
   });
   const parsed = safeJsonParse(text);
-  if (!parsed) return buildNodeDetailsFallback(nodeId);
+  if (!parsed || isGenericNodeDetails(parsed, nodeId, nodeContext)) {
+    console.warn("[expand] content fallback: invalid or generic node details from provider", { nodeId });
+    return markContentFallback(buildNodeDetailsFallback(nodeId, nodeContext), "invalid_expand_details");
+  }
   return {
     nodeId,
     consequences: normalizeStringArray(parsed.consequences, 3, [
@@ -309,13 +427,25 @@ async function buildNodeDetailsWithClaude(nodeId) {
       typeof parsed.next_question === "string"
         ? parsed.next_question
         : "What small test can validate this branch in the next 7 days?",
-    risk_flags: normalizeStringArray(parsed.risk_flags, 2, ["tradeoff"])
+    risk_flags: normalizeStringArray(parsed.risk_flags, 2, ["tradeoff"]),
+    __contentFallback: false,
+    __contentFallbackReason: null
   };
 }
 
-async function buildBranchChildrenWithClaude(parentNodeId, parentTitle, userQuestion, lineage = []) {
-  const base = parentNodeId.startsWith("world_") ? parentNodeId : `world_${parentNodeId}`;
+async function buildBranchChildrenWithClaude(
+  parentNodeId,
+  parentTitle,
+  parentBranchLabel,
+  userQuestion,
+  lineage = [],
+  parentContext = {}
+) {
+  const base = buildBranchBase(parentNodeId, userQuestion, lineage);
   const lineageText = lineageToText(lineage);
+  const shortLineage = lineageToText(lineage.slice(-3));
+  const baseLabel = normalizeBranchLabel(parentBranchLabel || extractTailLabel(parentNodeId));
+  const contextTags = Array.isArray(parentContext.tags) ? parentContext.tags.join(", ") : "";
   const text = await callClaudeText({
     model: getModelForTask("branch"),
     system: [
@@ -323,68 +453,103 @@ async function buildBranchChildrenWithClaude(parentNodeId, parentTitle, userQues
       "Return JSON only:",
       '{"children":[{"index":1,"distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
       "Exactly 3 children with index 1/2/3.",
-      "Use both lineage and question."
+      "Use both lineage and question.",
+      "Children must be grounded in parent context and evolve from parent assumptions.",
+      "Keep each one_liner under 16 words."
     ].join(" "),
     messages: [
       {
         role: "user",
-        content: `Parent:${parentTitle}\nLineage:${lineageText}\nQuestion:${userQuestion || ""}`
+        content: `Parent:${parentTitle}\nParentLabel:${baseLabel}\nParentDelta:${parentContext.delta || ""}\nParentOneLiner:${parentContext.oneLiner || ""}\nParentTags:${contextTags}\nLineage:${shortLineage}\nQuestion:${userQuestion || ""}`
       }
     ],
     maxTokens: 420
   });
   const parsed = safeJsonParse(text);
-  if (!parsed?.children || parsed.children.length !== 3) {
-    return buildBranchChildrenFallback(parentNodeId, parentTitle, userQuestion, lineage);
+  const normalizedChildren = normalizeBranchChildren(parsed);
+  if (!normalizedChildren) {
+    console.warn("[branch] content fallback: invalid JSON schema from provider");
+    return markContentFallback(
+      buildBranchChildrenFallback(parentNodeId, parentTitle, parentBranchLabel, userQuestion, lineage, parentContext),
+      "invalid_branch_json_schema"
+    );
   }
 
   const nodes = [];
   const edges = [];
-  for (const child of parsed.children.slice(0, 3)) {
+  for (const child of normalizedChildren) {
     const idx = clampInt(child.index, 1, 3, 1);
-    const id = `${base}${idx}`;
-    const label = branchLabelFromNodeId(id);
+    const id = `${base}_${idx}`;
+    const childLabel = `${baseLabel}${idx}`;
     nodes.push({
       id,
       type: "world",
-      title: limitWords(child.title || `World ${label}`, 5),
+      title: cleanGeneratedTitle(child.title, parentTitle, userQuestion, childLabel),
       delta: limitWords(child.delta || "Branch adjustment", 8),
-      one_liner: limitWords(child.one_liner || "Derived from lineage and question.", 16),
+      one_liner: cleanOneLiner(
+        child.one_liner || `${parentTitle} branch under ${userQuestion || "a new question"}`,
+        parentTitle,
+        userQuestion,
+        parentContext
+      ),
       tags: normalizeStringArray(child.tags, 3, [child.distance || "minimal", "branched"]),
       confidence: clampNumber(child.confidence, 0.4, 0.95, 0.68),
       parentId: parentNodeId,
       collapsed: false,
       data: {
         distance: typeof child.distance === "string" ? child.distance : "minimal",
-        branchLabel: label,
+        branchLabel: childLabel,
         derivedFromQuestion: userQuestion || "",
         lineageContext: lineageText
       }
     });
     edges.push({ id: `e_${parentNodeId}_${id}`, source: parentNodeId, target: id, label: "counterfactual" });
   }
-  return { nodes, edges };
+  return { nodes, edges, __contentFallback: false, __contentFallbackReason: null };
 }
 
 async function buildRoleReplyWithClaude(role, nodeTitle, message, history) {
   const historyLines = Array.isArray(history)
     ? history
-        .slice(-6)
-        .map((h) => `${h.sender || "user"}: ${h.text || ""}`)
+        .slice(-8)
+        .map(compactHistoryTurn)
+        .filter(Boolean)
         .join("\n")
     : "";
   const text = await callClaudeText({
     model: getModelForTask("chatbot"),
     system: [
       `You are ${role.title}. Style: ${role.style}.`,
+      "Build on latest user message and avoid repeating prior bullets verbatim.",
       "Return JSON only:",
       '{"answer":"...","bullets":["...","...","..."],"nextQuestion":"..."}'
     ].join(" "),
     messages: [{ role: "user", content: `Node:${nodeTitle}\nHistory:\n${historyLines}\nUser:${message}` }],
     maxTokens: 260
   });
-  const parsed = safeJsonParse(text);
-  if (!parsed) return buildRoleReplyFallback(role, nodeTitle, message);
+  let parsed = safeJsonParse(text);
+  if (!parsed) {
+    const retryText = await callClaudeText({
+      model: getModelForTask("chatbot"),
+      system: [
+        `You are ${role.title}. Style: ${role.style}.`,
+        "Output must be valid minified JSON only.",
+        "No markdown, no code fences, no prose.",
+        '{"answer":"...","bullets":["...","...","..."],"nextQuestion":"..."}'
+      ].join(" "),
+      messages: [{ role: "user", content: `Node:${nodeTitle}\nUser:${message}` }],
+      maxTokens: 220
+    });
+    parsed = safeJsonParse(retryText);
+  }
+  if (!parsed) {
+    const fromText = parseRoleReplyText(text, role, nodeTitle);
+    if (fromText) {
+      return { ...fromText, __contentFallback: false, __contentFallbackReason: null };
+    }
+    console.warn("[chat] content fallback: invalid JSON from provider", { nodeTitle: shortTitle(nodeTitle), roleId: role.roleId });
+    return markContentFallback(buildRoleReplyFallback(role, nodeTitle, message, history), "invalid_chat_json");
+  }
   return {
     roleId: role.roleId,
     roleTitle: role.title,
@@ -397,20 +562,30 @@ async function buildRoleReplyWithClaude(role, nodeTitle, message, history) {
     nextQuestion:
       typeof parsed.nextQuestion === "string"
         ? parsed.nextQuestion
-        : "What concrete next step can you validate in 48 hours?"
+        : "What concrete next step can you validate in 48 hours?",
+    __contentFallback: false,
+    __contentFallbackReason: null
   };
 }
 
 async function callClaudeText({ model, system, messages, maxTokens }) {
-  const response = await fetch(ANTHROPIC_CONFIG.apiUrl, {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_CONFIG.apiKey,
-      "anthropic-version": ANTHROPIC_CONFIG.version,
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0.2, system, messages })
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  let response;
+  try {
+    response = await fetch(ANTHROPIC_CONFIG.apiUrl, {
+      method: "POST",
+      headers: {
+        "x-api-key": ANTHROPIC_CONFIG.apiKey,
+        "anthropic-version": ANTHROPIC_CONFIG.version,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0.2, system, messages }),
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   if (!response.ok) {
     throw new Error(`Anthropic error ${response.status}: ${await response.text()}`);
   }
@@ -464,35 +639,37 @@ function buildInitialGraphFallback(eventText, options) {
   return { nodes, edges };
 }
 
-function buildBranchChildrenFallback(parentNodeId, parentTitle, userQuestion, lineage = []) {
+function buildBranchChildrenFallback(parentNodeId, parentTitle, parentBranchLabel, userQuestion, lineage = [], parentContext = {}) {
   const children = [];
   const edges = [];
-  const base = parentNodeId.startsWith("world_") ? parentNodeId : `world_${parentNodeId}`;
-  const questionHint = shortTitle(userQuestion || "user follow-up");
-  const lineageHint = shortTitle(lineageToText(lineage));
+  const base = buildBranchBase(parentNodeId, userQuestion, lineage);
+  const questionHint = shortTitle(userQuestion || "follow-up");
+  const baseLabel = normalizeBranchLabel(parentBranchLabel || extractTailLabel(parentNodeId));
+  const lineageHint = shortTitle(lineageToText(lineage.slice(-3)));
+  const parentAnchor = shortTitle(parentContext.oneLiner || parentContext.delta || parentTitle);
   const variants = [
-    { s: "1", distance: "minimal", delta: "Refine one variable", confidence: 0.72 },
-    { s: "2", distance: "moderate", delta: "Adjust decision and constraints", confidence: 0.66 },
-    { s: "3", distance: "radical", delta: "Reframe goals and environment", confidence: 0.58 }
+    { s: "1", distance: "minimal", delta: "Refine one constraint", confidence: 0.72, line: "Validate the smallest executable step first to reduce trial cost." },
+    { s: "2", distance: "moderate", delta: "Adjust strategy and pace", confidence: 0.66, line: "Keep direction, but rebalance resources and execution tempo." },
+    { s: "3", distance: "radical", delta: "Reframe the stage goal", confidence: 0.58, line: "Allow goal reframing to unlock a higher-upside path." }
   ];
   for (const variant of variants) {
-    const id = `${base}${variant.s}`;
-    const label = branchLabelFromNodeId(id);
+    const id = `${base}_${variant.s}`;
+    const childLabel = `${baseLabel}${variant.s}`;
     children.push({
       id,
       type: "world",
-      title: `World ${label}`,
+      title: fallbackBranchTitle(parentTitle, questionHint, childLabel, variant.distance),
       delta: variant.delta,
-      one_liner: `${parentTitle} -> ${variant.distance} via ${questionHint}; context ${lineageHint}.`,
+      one_liner: `${variant.line} Inherited anchor: ${parentAnchor} (question: ${questionHint})`,
       tags: [variant.distance, "branched"],
       confidence: variant.confidence,
       parentId: parentNodeId,
       collapsed: false,
       data: {
         distance: variant.distance,
-        branchLabel: label,
+        branchLabel: childLabel,
         derivedFromQuestion: userQuestion || "",
-        lineageContext: lineageToText(lineage)
+        lineageContext: lineageHint
       }
     });
     edges.push({ id: `e_${parentNodeId}_${id}`, source: parentNodeId, target: id, label: "counterfactual" });
@@ -500,7 +677,7 @@ function buildBranchChildrenFallback(parentNodeId, parentTitle, userQuestion, li
   return { nodes: children, edges };
 }
 
-function buildNodeDetailsFallback(nodeId) {
+function buildNodeDetailsFallback(nodeId, nodeContext = {}) {
   if (nodeId === "root") {
     return {
       nodeId,
@@ -511,25 +688,35 @@ function buildNodeDetailsFallback(nodeId) {
       ],
       why_it_changes: "The root is only the anchor context. Branches carry actionable divergences.",
       next_question: "Which first-level world seems most plausible to explore deeper?",
-      risk_flags: ["uncertainty"]
+      risk_flags: ["uncertainty"],
+      __contentFallback: true,
+      __contentFallbackReason: "fallback_root"
     };
   }
+  const title = shortTitle(nodeContext.title || nodeId);
+  const oneLiner = String(nodeContext.oneLiner || "").trim();
+  const delta = String(nodeContext.delta || "").trim();
+  const tags = Array.isArray(nodeContext.tags) ? nodeContext.tags.filter(Boolean) : [];
+  const tagFocus = tags.slice(0, 2).join(" + ");
   return {
     nodeId,
     consequences: [
-      "Downstream priorities may reorder",
-      "Execution constraints can change",
-      "Second-order effects can appear quickly"
+      `${title} shifts priorities and resource allocation in the near term.`,
+      oneLiner ? `Execution follows this direction: ${limitWords(oneLiner, 14)}.` : "Execution constraints can change quickly.",
+      tagFocus ? `This path emphasizes ${tagFocus}, creating tradeoffs with alternatives.` : "Second-order effects can appear quickly."
     ],
     why_it_changes:
-      "This world modifies assumptions and therefore shifts feasible actions, risks, and expected outcomes.",
-    next_question: "What small test can validate this branch in the next 7 days?",
-    risk_flags: ["tradeoff", "uncertainty"]
+      delta || "This node modifies assumptions and therefore shifts feasible actions, risks, and expected outcomes.",
+    next_question: "What concrete 7-day test can validate this node's key assumption?",
+    risk_flags: ["tradeoff", "uncertainty"],
+    __contentFallback: true,
+    __contentFallbackReason: "fallback_node"
   };
 }
 
-function buildRoleReplyFallback(role, nodeTitle, message) {
+function buildRoleReplyFallback(role, nodeTitle, message, history = []) {
   const intent = summarizeIntent(message);
+  const userTurnCount = Array.isArray(history) ? history.filter((h) => h.sender === "user").length : 0;
   if (role.roleId === "you_now") {
     return {
       roleId: role.roleId,
@@ -540,11 +727,17 @@ function buildRoleReplyFallback(role, nodeTitle, message) {
     };
   }
   if (role.roleId === "you_5y") {
+    const variant = userTurnCount % 3;
+    const bulletsByVariant = [
+      ["Preserve reversibility for future moves", "Invest in compounding capability", "Estimate one-year regret before committing"],
+      ["Expand options, avoid narrow lock-in", "Prefer learning velocity over short-term optics", "Test choices against a 12-month horizon"],
+      ["Protect downside while keeping upside alive", "Build scarce skills that compound", "Ask what future-you would regret not trying"]
+    ];
     return {
       roleId: role.roleId,
       roleTitle: role.title,
       answer: `From You-in-5-Years on ${nodeTitle}: optimize for compounding, not comfort. ${intent}`,
-      bullets: ["Protect long-term option value", "Prefer skill-building over optics", "Evaluate 12-month regret"],
+      bullets: bulletsByVariant[variant],
       nextQuestion: "Which option compounds learning and network fastest?"
     };
   }
@@ -572,13 +765,24 @@ async function withProviderFallback(tryPrimary, fallbackFn, label) {
 function safeJsonParse(text) {
   if (!text) return null;
   const raw = text.trim();
-  try {
-    return JSON.parse(raw);
-  } catch {
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) return null;
+  const sanitized = sanitizeJsonLike(raw);
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
     try {
-      return JSON.parse(match[0]);
+      return JSON.parse(sanitizeJsonLike(fenced[1].trim()));
+    } catch {}
+  }
+  try {
+    return JSON.parse(sanitized);
+  } catch {
+    const candidate = extractFirstBalancedJsonObject(sanitized);
+    if (!candidate) return null;
+    try {
+      return JSON.parse(candidate);
+    } catch {}
+    const repaired = repairTrailingCommas(candidate);
+    try {
+      return JSON.parse(repaired);
     } catch {
       return null;
     }
@@ -606,13 +810,216 @@ function summarizeIntent(text) {
   return `Your question focus: ${cleaned.split(" ").slice(0, 20).join(" ")}.`;
 }
 
+function compactHistoryTurn(item) {
+  const sender = item?.sender === "assistant" ? "assistant" : "user";
+  const raw = String(item?.text || "").trim();
+  if (!raw) return "";
+  const firstChunk = raw.split("\nQ:")[0].split("\n- ")[0];
+  const compact = firstChunk.replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  return `${sender}: ${limitWords(compact, 20)}`;
+}
+
+function markContentFallback(data, reason) {
+  return { ...(data || {}), __contentFallback: true, __contentFallbackReason: reason || "content_fallback" };
+}
+
+function normalizePlanWorlds(parsed) {
+  if (!parsed || typeof parsed !== "object") return null;
+  let worlds = null;
+  if (Array.isArray(parsed.worlds)) {
+    worlds = parsed.worlds;
+  } else if (parsed.worlds && typeof parsed.worlds === "object") {
+    worlds = Object.values(parsed.worlds);
+  } else if (Array.isArray(parsed.branches)) {
+    worlds = parsed.branches;
+  } else if (Array.isArray(parsed.children)) {
+    worlds = parsed.children;
+  }
+  if (!Array.isArray(worlds) || worlds.length === 0) return null;
+  const suffixes = ["A", "B", "C"];
+  const normalized = worlds
+    .slice(0, 3)
+    .map((world, idx) => ({
+      ...(world || {}),
+      suffix: suffixes[idx],
+      distance: normalizeDistance(world?.distance)
+    }));
+  return normalized.length === 3 ? normalized : null;
+}
+
+function normalizeBranchChildren(parsed) {
+  if (!parsed || typeof parsed !== "object") return null;
+  let children = null;
+  if (Array.isArray(parsed.children)) {
+    children = parsed.children;
+  } else if (parsed.children && typeof parsed.children === "object") {
+    children = Object.values(parsed.children);
+  } else if (Array.isArray(parsed.branches)) {
+    children = parsed.branches;
+  } else if (Array.isArray(parsed.worlds)) {
+    children = parsed.worlds;
+  }
+  if (!Array.isArray(children) || children.length === 0) return null;
+  const normalized = children.slice(0, 3).map((child, idx) => ({
+    ...(child || {}),
+    index: clampInt(child?.index, 1, 3, idx + 1),
+    distance: normalizeDistance(child?.distance)
+  }));
+  if (normalized.length < 3) {
+    const last = normalized[normalized.length - 1] || {};
+    while (normalized.length < 3) {
+      normalized.push({ ...last, index: normalized.length + 1 });
+    }
+  }
+  return normalized;
+}
+
+function normalizeDistance(distance) {
+  const value = String(distance || "").toLowerCase();
+  if (value === "minimal" || value === "moderate" || value === "radical") return value;
+  return "moderate";
+}
+
+function isGenericNodeDetails(parsed, nodeId, nodeContext = {}) {
+  const text = [
+    ...(Array.isArray(parsed?.consequences) ? parsed.consequences : []),
+    parsed?.why_it_changes,
+    parsed?.next_question
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (!text) return true;
+  const genericPatterns = [
+    "alternate timeline",
+    "separate trajectory",
+    "node id",
+    "lacks sufficient context",
+    "unable to determine the domain"
+  ];
+  if (genericPatterns.some((p) => p && text.includes(p))) return true;
+  return false;
+}
+
+function fallbackBranchTitle(parentTitle, questionHint, childLabel, distance) {
+  const focus = shortTitle(parentTitle || "Path");
+  const question = shortTitle(questionHint || "follow-up");
+  if (distance === "minimal") return `${focus} - Low-Risk Variant`;
+  if (distance === "radical") return `${focus} - Bold Pivot`;
+  return `${focus} - Strategic Adjustment (${question || childLabel})`;
+}
+
+function cleanGeneratedTitle(rawTitle, parentTitle, userQuestion, childLabel) {
+  const cleaned = String(rawTitle || "").replace(/\s+/g, " ").trim();
+  if (cleaned && !/^world\s+[a-z0-9]+$/i.test(cleaned)) return limitWords(cleaned, 8);
+  return fallbackBranchTitle(parentTitle, userQuestion, childLabel, "moderate");
+}
+
+function parseRoleReplyText(rawText, role, nodeTitle) {
+  const text = String(rawText || "").trim();
+  if (!text) return null;
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const bulletLines = lines
+    .filter((line) => /^[-*•]\s+/.test(line))
+    .map((line) => line.replace(/^[-*•]\s+/, ""))
+    .slice(0, 3);
+  const questionLine =
+    lines.find((line) => /^q[:：]\s*/i.test(line)) ||
+    [...lines].reverse().find((line) => /\?$/.test(line)) ||
+    "What concrete next step can you validate in 48 hours?";
+  const answerLine =
+    lines.find((line) => !/^[-*•]\s+/.test(line) && !/^q[:：]\s*/i.test(line)) ||
+    `From ${role.title}: focus on tradeoffs in ${nodeTitle}.`;
+  const bullets =
+    bulletLines.length > 0
+      ? bulletLines
+      : ["List assumptions", "Choose one low-risk test", "Set review checkpoint"];
+  return {
+    roleId: role.roleId,
+    roleTitle: role.title,
+    answer: limitWords(answerLine, 40),
+    bullets: normalizeStringArray(bullets, 3, bullets),
+    nextQuestion: questionLine.replace(/^q[:：]\s*/i, "").trim()
+  };
+}
+
+function sanitizeJsonLike(text) {
+  return String(text || "")
+    .replace(/\u201c|\u201d/g, '"')
+    .replace(/\u2018|\u2019/g, "'")
+    .trim();
+}
+
+function repairTrailingCommas(text) {
+  return String(text || "").replace(/,\s*([}\]])/g, "$1");
+}
+
+function extractFirstBalancedJsonObject(text) {
+  const src = String(text || "");
+  const start = src.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < src.length; i += 1) {
+    const ch = src[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 function lineageToText(lineage) {
   if (!Array.isArray(lineage) || lineage.length === 0) return "none";
   return lineage.map((item) => `${item.id || "node"}:${shortTitle(item.title || "")}`).join(" -> ");
 }
 
-function branchLabelFromNodeId(nodeId) {
-  return nodeId.replace(/^world_/, "").toUpperCase();
+function buildBranchBase(parentNodeId, userQuestion, lineage) {
+  const base = parentNodeId.startsWith("world_") ? parentNodeId : `world_${parentNodeId}`;
+  const signature = hashText(`${userQuestion || ""}|${lineageToText(lineage)}`).slice(0, 6);
+  return `${base}_${signature}`;
+}
+
+function extractTailLabel(parentNodeId) {
+  return parentNodeId.replace(/^world_/, "").split("_").slice(-1)[0] || "W";
+}
+
+function normalizeBranchLabel(label) {
+  return String(label || "W")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(-6);
+}
+
+function cleanOneLiner(raw, parentTitle, userQuestion, parentContext = {}) {
+  const text = String(raw || "")
+    .replace(/\s+/g, " ")
+    .replace(/prior path root:[^.;]+/gi, "")
+    .replace(/lineage:[^.;]+/gi, "")
+    .trim();
+  if (!text || text.length < 8) {
+    const anchor = shortTitle(parentContext.oneLiner || parentContext.delta || parentTitle);
+    return `Actionable branch extending ${anchor} around "${shortTitle(userQuestion || "a new question")}".`;
+  }
+  return limitWords(text, 16);
 }
 
 function shortTitle(input) {
