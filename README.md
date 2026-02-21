@@ -12,7 +12,7 @@ EventSim 是一个面向 Hackathon 演示的交互式事件模拟器。
   - `minimal`（最小改动）
   - `moderate`（中等改动）
   - `radical`（激进改动）
-- 三种固定角色视角（在右侧聊天机器人里切换，不在图中显示）：
+- 三种固定角色视角（在右下角聊天机器人里切换，不在图中显示）：
   - `you_now`
   - `you_5y`
   - `neutral_advisor`
@@ -21,7 +21,7 @@ EventSim 是一个面向 Hackathon 演示的交互式事件模拟器。
   - `why_it_changes`
   - `next_question`
   - `risk_flags`
-- 选中世界节点后可继续问答并派生子世界（如 `A -> A1/A2/A3`）
+- 在图中点击节点 `Branch` 按钮会弹窗，继续问答并派生子世界（如 `A -> A1/A2/A3`）
 - 每个节点可折叠/展开，控制是否继续显示子树
 - Demo Mode（本地预生成 JSON，断网也可展示）
 - 导出当前图谱为 JSON、复制摘要到剪贴板
@@ -101,8 +101,8 @@ npm run dev
 2. 进入 `/sim`，选择模板或输入事件文本。
 3. 点击 `Generate Graph`，生成图谱。
 4. 点击任意 World 节点，右侧面板会加载结构化详情。
-5. 在 `Role Chatbot` 中切换角色并提问，进行多轮问答。
-6. 在 `Branch This Node` 输入追问，生成子世界（1/2/3）。
+5. 点击右下角 `Role Chat` 浮窗，切换角色并提问，进行多轮问答。
+6. 在图中选定节点后，点击节点上的 `Branch` 按钮，在弹窗中输入追问，生成子世界（1/2/3）。
 7. 节点支持 `Collapse/Expand`，可控制是否继续展示子树。
 8. 点击 `Export JSON` 导出当前结果。
 9. 点击 `Copy Summary` 复制结论摘要。

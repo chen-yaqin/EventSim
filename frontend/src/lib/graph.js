@@ -1,4 +1,4 @@
-export function toReactFlow(graph, onToggleCollapse) {
+export function toReactFlow(graph, onToggleCollapse, onOpenBranch) {
   const { visibleNodes, visibleEdges, childCountById, depthById } = buildVisibleTree(graph);
   const byDepth = new Map();
   for (const node of visibleNodes) {
@@ -28,7 +28,9 @@ export function toReactFlow(graph, onToggleCollapse) {
           confidence: node.confidence,
           collapsed: Boolean(node.collapsed),
           hasChildren: (childCountById.get(node.id) || 0) > 0,
-          onToggleCollapse
+          nodeType: node.type,
+          onToggleCollapse,
+          onOpenBranch
         },
         style: styleForType(node.type)
       });

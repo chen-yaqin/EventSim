@@ -6,17 +6,30 @@ export default function WorldNode({ data }) {
       <Handle type="target" position={Position.Top} />
       <div className="world-node-head">
         <strong>{data.title}</strong>
-        {data.hasChildren && (
-          <button
-            className="node-toggle"
-            onClick={(e) => {
-              e.stopPropagation();
-              data.onToggleCollapse(data.id);
-            }}
-          >
-            {data.collapsed ? "Expand" : "Collapse"}
-          </button>
-        )}
+        <div className="node-actions">
+          {data.nodeType === "world" && (
+            <button
+              className="node-toggle"
+              onClick={(e) => {
+                e.stopPropagation();
+                data.onOpenBranch(data.id);
+              }}
+            >
+              Branch
+            </button>
+          )}
+          {data.hasChildren && (
+            <button
+              className="node-toggle"
+              onClick={(e) => {
+                e.stopPropagation();
+                data.onToggleCollapse(data.id);
+              }}
+            >
+              {data.collapsed ? "Expand" : "Collapse"}
+            </button>
+          )}
+        </div>
       </div>
       <p>{data.oneLiner}</p>
       <div className="chip-row">

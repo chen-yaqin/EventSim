@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import BranchModal from "../components/BranchModal.jsx";
+import ChatWidget from "../components/ChatWidget.jsx";
 import GraphCanvas from "../components/GraphCanvas.jsx";
 import ScenarioForm from "../components/ScenarioForm.jsx";
 import SidePanel from "../components/SidePanel.jsx";
@@ -29,9 +31,19 @@ export default function SimPage() {
   const [chatLoading, setChatLoading] = useState(false);
   const [branchInput, setBranchInput] = useState("");
   const [branchLoading, setBranchLoading] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [branchModalOpen, setBranchModalOpen] = useState(false);
+  const [branchTargetId, setBranchTargetId] = useState(null);
 
   const selectedNode = useMemo(() => graph.nodes.find((n) => n.id === selectedId) || null, [graph, selectedId]);
-  const flow = useMemo(() => toReactFlow(graph, handleToggleCollapse), [graph]);
+  const branchTargetNode = useMemo(
+    () => graph.nodes.find((n) => n.id === branchTargetId) || null,
+    [graph, branchTargetId]
+  );
+  const flow = useMemo(
+    () => toReactFlow(graph, handleToggleCollapse, openBranchModalForNode),
+    [graph]
+  );
   const chatKey = selectedNode ? `${selectedNode.id}:${roleId}` : "";
   const chatMessages = chatByKey[chatKey] || [];
 
@@ -54,6 +66,8 @@ export default function SimPage() {
       setChatByKey({});
       setChatInput("");
       setBranchInput("");
+      setBranchModalOpen(false);
+      setBranchTargetId(null);
       setCallsUsed((x) => x + 1);
       toast(result.meta.cache === "hit" ? "Loaded plan from cache" : "Graph generated", "success");
     } catch (error) {
@@ -118,18 +132,19 @@ export default function SimPage() {
   }
 
   async function handleBranchGenerate() {
-    if (!selectedNode || selectedNode.type !== "world" || !branchInput.trim() || !eventHash) return;
+    if (!branchTargetNode || branchTargetNode.type !== "world" || !branchInput.trim() || !eventHash) return;
     setBranchLoading(true);
     try {
       const result = await fetchBranch({
         eventHash,
-        parentNodeId: selectedNode.id,
-        parentTitle: selectedNode.title,
+        parentNodeId: branchTargetNode.id,
+        parentTitle: branchTargetNode.title,
         userQuestion: branchInput.trim()
       });
-      setGraph((prev) => mergeGraph(prev, result, selectedNode.id));
+      setGraph((prev) => mergeGraph(prev, result, branchTargetNode.id));
       setCallsUsed((x) => x + 1);
       setBranchInput("");
+      setBranchModalOpen(false);
       toast(result.meta.cache === "hit" ? "Branch loaded from cache" : "Child worlds generated", "success");
     } catch (error) {
       toast(error.message, error.status === 429 ? "warn" : "error");
@@ -146,6 +161,14 @@ export default function SimPage() {
         node.id === nodeId ? { ...node, collapsed: !node.collapsed } : node
       )
     }));
+  }
+
+  function openBranchModalForNode(nodeId) {
+    const node = graph.nodes.find((n) => n.id === nodeId);
+    if (!node || node.type !== "world") return;
+    setBranchTargetId(nodeId);
+    setBranchModalOpen(true);
+    setBranchInput("");
   }
 
   function handleExport() {
@@ -194,22 +217,32 @@ export default function SimPage() {
           selectedNode={selectedNode}
           details={selectedNode ? expanded[selectedNode.id] : null}
           loading={loadingExpand}
-          roleId={roleId}
-          onRoleChange={setRoleId}
-          chatMessages={chatMessages}
-          chatInput={chatInput}
-          onChatInputChange={setChatInput}
-          onSendChat={handleSendChat}
-          chatLoading={chatLoading}
-          branchInput={branchInput}
-          onBranchInputChange={setBranchInput}
-          onBranchGenerate={handleBranchGenerate}
-          branchLoading={branchLoading}
           onToggleCollapse={() => handleToggleCollapse()}
           onCopySummary={handleCopySummary}
         />
       </div>
 
+      <ChatWidget
+        open={chatOpen}
+        onToggle={() => setChatOpen((v) => !v)}
+        selectedNode={selectedNode}
+        roleId={roleId}
+        onRoleChange={setRoleId}
+        messages={chatMessages}
+        input={chatInput}
+        onInputChange={setChatInput}
+        onSend={handleSendChat}
+        loading={chatLoading}
+      />
+      <BranchModal
+        open={branchModalOpen}
+        node={branchTargetNode}
+        input={branchInput}
+        onInputChange={setBranchInput}
+        onGenerate={handleBranchGenerate}
+        onClose={() => setBranchModalOpen(false)}
+        loading={branchLoading}
+      />
       <ToastStack items={toasts} />
     </main>
   );

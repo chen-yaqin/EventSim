@@ -1,24 +1,7 @@
-const ROLES = [
-  { id: "you_now", label: "You-Now" },
-  { id: "you_5y", label: "You-in-5-Years" },
-  { id: "neutral_advisor", label: "Neutral Advisor" }
-];
-
 export default function SidePanel({
   selectedNode,
   details,
   loading,
-  roleId,
-  onRoleChange,
-  chatMessages,
-  chatInput,
-  onChatInputChange,
-  onSendChat,
-  chatLoading,
-  branchInput,
-  onBranchInputChange,
-  onBranchGenerate,
-  branchLoading,
   onToggleCollapse,
   onCopySummary
 }) {
@@ -30,8 +13,6 @@ export default function SidePanel({
       </aside>
     );
   }
-
-  const canBranch = selectedNode.type === "world";
 
   return (
     <aside className="card side-panel">
@@ -68,42 +49,6 @@ export default function SidePanel({
       ) : (
         <p>No expanded details yet.</p>
       )}
-
-      <h4>Role Chatbot</h4>
-      <select value={roleId} onChange={(e) => onRoleChange(e.target.value)}>
-        {ROLES.map((role) => (
-          <option key={role.id} value={role.id}>
-            {role.label}
-          </option>
-        ))}
-      </select>
-      <div className="chat-box">
-        {(chatMessages || []).map((msg) => (
-          <div key={msg.id} className={`chat-line chat-${msg.sender}`}>
-            <strong>{msg.sender === "user" ? "You" : msg.roleTitle || "Assistant"}:</strong> {msg.text}
-          </div>
-        ))}
-        {!chatMessages?.length && <p className="muted">Start a conversation for this node and role.</p>}
-      </div>
-      <textarea
-        value={chatInput}
-        onChange={(e) => onChatInputChange(e.target.value)}
-        placeholder="Ask this role how to evaluate this world..."
-      />
-      <button className="btn btn-soft" onClick={onSendChat} disabled={chatLoading || !chatInput.trim()}>
-        {chatLoading ? "Sending..." : "Send"}
-      </button>
-
-      <h4>Branch This Node</h4>
-      <p className="muted">Ask a follow-up question to generate {selectedNode.title} -> child worlds (1/2/3).</p>
-      <textarea
-        value={branchInput}
-        onChange={(e) => onBranchInputChange(e.target.value)}
-        placeholder="Example: What if we optimize for retention over speed?"
-      />
-      <button className="btn" onClick={onBranchGenerate} disabled={!canBranch || branchLoading || !branchInput.trim()}>
-        {branchLoading ? "Generating..." : "Generate Child Worlds"}
-      </button>
 
       <div className="row">
         <button className="btn btn-soft" onClick={onToggleCollapse}>
