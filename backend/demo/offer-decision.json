@@ -1,0 +1,189 @@
+{
+  "id": "offer-decision",
+  "title": "Offer Decision",
+  "eventText": "I got two PhD offers and need to choose the better long-term path.",
+  "graph": {
+    "nodes": [
+      {
+        "id": "root",
+        "type": "root",
+        "title": "Two PhD offers decision",
+        "delta": "Baseline event",
+        "one_liner": "Need to choose between two high-stakes academic paths.",
+        "tags": ["high", "growth"],
+        "confidence": 0.78,
+        "parentId": null,
+        "worldId": null,
+        "roleId": null,
+        "data": {
+          "timeframe": "5 years",
+          "stakes": "high",
+          "goal": "growth"
+        }
+      },
+      {
+        "id": "world_a",
+        "type": "world",
+        "title": "World A: Advisor fit first",
+        "delta": "Negotiate advisor and project fit",
+        "one_liner": "Small tweak focused on mentorship quality and expectations.",
+        "tags": ["minimal", "fit"],
+        "confidence": 0.75,
+        "parentId": "root",
+        "worldId": "world_a",
+        "roleId": null
+      },
+      {
+        "id": "world_b",
+        "type": "world",
+        "title": "World B: City and lab pivot",
+        "delta": "Choose different city and lab style",
+        "one_liner": "Moderate shift in lifestyle and day-to-day work dynamics.",
+        "tags": ["moderate", "environment"],
+        "confidence": 0.68,
+        "parentId": "root",
+        "worldId": "world_b",
+        "roleId": null
+      },
+      {
+        "id": "world_c",
+        "type": "world",
+        "title": "World C: Delay for gap year",
+        "delta": "Take a gap year before committing",
+        "one_liner": "Radical path to gather clarity before locking trajectory.",
+        "tags": ["radical", "optionality"],
+        "confidence": 0.61,
+        "parentId": "root",
+        "worldId": "world_c",
+        "roleId": null
+      },
+      {
+        "id": "world_a_you_now",
+        "type": "role",
+        "title": "You-Now",
+        "delta": "logistics and stress control",
+        "one_liner": "Minimize operational chaos in the first semester.",
+        "tags": ["you_now", "minimal"],
+        "confidence": 0.71,
+        "parentId": "world_a",
+        "worldId": "world_a",
+        "roleId": "you_now"
+      },
+      {
+        "id": "world_a_you_5y",
+        "type": "role",
+        "title": "You-in-5-Years",
+        "delta": "signal and compounding",
+        "one_liner": "Optimize research trajectory and advisor leverage.",
+        "tags": ["you_5y", "minimal"],
+        "confidence": 0.67,
+        "parentId": "world_a",
+        "worldId": "world_a",
+        "roleId": "you_5y"
+      },
+      {
+        "id": "world_a_neutral_advisor",
+        "type": "role",
+        "title": "Neutral Advisor",
+        "delta": "tradeoff framing",
+        "one_liner": "Balance fit, output, and downside protection.",
+        "tags": ["neutral_advisor", "minimal"],
+        "confidence": 0.73,
+        "parentId": "world_a",
+        "worldId": "world_a",
+        "roleId": "neutral_advisor"
+      },
+      {
+        "id": "world_b_you_now",
+        "type": "role",
+        "title": "You-Now",
+        "delta": "immediate adaptation cost",
+        "one_liner": "City transition and workload changes dominate.",
+        "tags": ["you_now", "moderate"],
+        "confidence": 0.69,
+        "parentId": "world_b",
+        "worldId": "world_b",
+        "roleId": "you_now"
+      },
+      {
+        "id": "world_b_you_5y",
+        "type": "role",
+        "title": "You-in-5-Years",
+        "delta": "trajectory asymmetry",
+        "one_liner": "Lab style impacts publication compounding.",
+        "tags": ["you_5y", "moderate"],
+        "confidence": 0.66,
+        "parentId": "world_b",
+        "worldId": "world_b",
+        "roleId": "you_5y"
+      },
+      {
+        "id": "world_b_neutral_advisor",
+        "type": "role",
+        "title": "Neutral Advisor",
+        "delta": "robustness check",
+        "one_liner": "Test assumptions on fit and execution bandwidth.",
+        "tags": ["neutral_advisor", "moderate"],
+        "confidence": 0.72,
+        "parentId": "world_b",
+        "worldId": "world_b",
+        "roleId": "neutral_advisor"
+      },
+      {
+        "id": "world_c_you_now",
+        "type": "role",
+        "title": "You-Now",
+        "delta": "financial and social pressure",
+        "one_liner": "Gap year uncertainty may increase stress immediately.",
+        "tags": ["you_now", "radical"],
+        "confidence": 0.64,
+        "parentId": "world_c",
+        "worldId": "world_c",
+        "roleId": "you_now"
+      },
+      {
+        "id": "world_c_you_5y",
+        "type": "role",
+        "title": "You-in-5-Years",
+        "delta": "option value accumulation",
+        "one_liner": "Delay may unlock stronger long-term alignment.",
+        "tags": ["you_5y", "radical"],
+        "confidence": 0.65,
+        "parentId": "world_c",
+        "worldId": "world_c",
+        "roleId": "you_5y"
+      },
+      {
+        "id": "world_c_neutral_advisor",
+        "type": "role",
+        "title": "Neutral Advisor",
+        "delta": "risk-adjusted framing",
+        "one_liner": "Weigh optionality gains against momentum loss.",
+        "tags": ["neutral_advisor", "radical"],
+        "confidence": 0.7,
+        "parentId": "world_c",
+        "worldId": "world_c",
+        "roleId": "neutral_advisor"
+      }
+    ],
+    "edges": [
+      { "id": "e_root_world_a", "source": "root", "target": "world_a", "label": "counterfactual" },
+      { "id": "e_root_world_b", "source": "root", "target": "world_b", "label": "counterfactual" },
+      { "id": "e_root_world_c", "source": "root", "target": "world_c", "label": "counterfactual" },
+      { "id": "e_world_a_world_a_you_now", "source": "world_a", "target": "world_a_you_now", "label": "role lens" },
+      { "id": "e_world_a_world_a_you_5y", "source": "world_a", "target": "world_a_you_5y", "label": "role lens" },
+      { "id": "e_world_a_world_a_neutral_advisor", "source": "world_a", "target": "world_a_neutral_advisor", "label": "role lens" },
+      { "id": "e_world_b_world_b_you_now", "source": "world_b", "target": "world_b_you_now", "label": "role lens" },
+      { "id": "e_world_b_world_b_you_5y", "source": "world_b", "target": "world_b_you_5y", "label": "role lens" },
+      { "id": "e_world_b_world_b_neutral_advisor", "source": "world_b", "target": "world_b_neutral_advisor", "label": "role lens" },
+      { "id": "e_world_c_world_c_you_now", "source": "world_c", "target": "world_c_you_now", "label": "role lens" },
+      { "id": "e_world_c_world_c_you_5y", "source": "world_c", "target": "world_c_you_5y", "label": "role lens" },
+      { "id": "e_world_c_world_c_neutral_advisor", "source": "world_c", "target": "world_c_neutral_advisor", "label": "role lens" }
+    ]
+  },
+  "meta": {
+    "cache": "demo",
+    "promptVersion": "v1",
+    "generatedAt": "2026-02-21T00:00:00.000Z"
+  }
+}

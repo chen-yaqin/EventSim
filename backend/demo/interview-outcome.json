@@ -1,0 +1,6 @@
+{
+  "id": "interview-outcome",
+  "title": "Interview Outcome",
+  "eventText": "My interview did not go well and I am not sure how to recover.",
+  "meta": { "cache": "demo", "promptVersion": "v1", "generatedAt": "2026-02-21T00:00:00.000Z" }
+}
