@@ -7,12 +7,12 @@ EventSim 是一个面向 Hackathon 演示的交互式事件模拟器。
 
 当前版本已经实现完整 MVP（可直接演示）：
 
-- 输入事件文本，生成模拟图谱（1 个 root + 3 个世界 + 每个世界 3 个角色节点）
+- 输入事件文本，生成模拟图谱（1 个 root + 3 个世界节点）
 - 三种反事实距离：
   - `minimal`（最小改动）
   - `moderate`（中等改动）
   - `radical`（激进改动）
-- 三种固定角色视角：
+- 三种固定角色视角（在右侧聊天机器人里切换，不在图中显示）：
   - `you_now`
   - `you_5y`
   - `neutral_advisor`
@@ -21,7 +21,8 @@ EventSim 是一个面向 Hackathon 演示的交互式事件模拟器。
   - `why_it_changes`
   - `next_question`
   - `risk_flags`
-- Compare 模态框（节点 A/B 对比：changed / diverged / stable）
+- 选中世界节点后可继续问答并派生子世界（如 `A -> A1/A2/A3`）
+- 每个节点可折叠/展开，控制是否继续显示子树
 - Demo Mode（本地预生成 JSON，断网也可展示）
 - 导出当前图谱为 JSON、复制摘要到剪贴板
 - 后端缓存（文件缓存）+ 简单限流 + 安全拦截（医疗/法律/自伤类）
@@ -39,6 +40,8 @@ EventSim 是一个面向 Hackathon 演示的交互式事件模拟器。
 
 - `POST /api/plan`：生成图谱骨架
 - `POST /api/expand`：按节点展开详情
+- `POST /api/chat`：按 role 与当前节点进行问答
+- `POST /api/branch`：基于选中节点继续派生 3 个子世界
 - `GET /api/demo/:id`：读取预生成 demo 场景
 
 ## 3. 环境要求
@@ -97,10 +100,12 @@ npm run dev
 1. 打开 `/demo`，点击 `Demo: Offer Decision`，展示“秒开”能力。
 2. 进入 `/sim`，选择模板或输入事件文本。
 3. 点击 `Generate Graph`，生成图谱。
-4. 点击任意 World/Role 节点，右侧面板会加载结构化详情。
-5. 点击 `Pin` 固定两个节点，点 `Compare` 展示差异。
-6. 点击 `Export JSON` 导出当前结果。
-7. 点击 `Copy Summary` 复制结论摘要。
+4. 点击任意 World 节点，右侧面板会加载结构化详情。
+5. 在 `Role Chatbot` 中切换角色并提问，进行多轮问答。
+6. 在 `Branch This Node` 输入追问，生成子世界（1/2/3）。
+7. 节点支持 `Collapse/Expand`，可控制是否继续展示子树。
+8. 点击 `Export JSON` 导出当前结果。
+9. 点击 `Copy Summary` 复制结论摘要。
 
 ## 6. API 使用示例
 
@@ -109,7 +114,7 @@ npm run dev
 ```bash
 curl -X POST http://localhost:8787/api/plan \
   -H "Content-Type: application/json" \
-  -d "{\"eventText\":\"I have two job offers and need to choose.\",\"options\":{\"timeframe\":\"1 year\",\"stakes\":\"high\",\"goal\":\"growth\",\"worldCount\":3,\"roleCount\":3}}"
+  -d "{\"eventText\":\"I have two job offers and need to choose.\",\"options\":{\"timeframe\":\"1 year\",\"stakes\":\"high\",\"goal\":\"growth\"}}"
 ```
 
 ### 6.2 展开节点
@@ -117,10 +122,26 @@ curl -X POST http://localhost:8787/api/plan \
 ```bash
 curl -X POST http://localhost:8787/api/expand \
   -H "Content-Type: application/json" \
-  -d "{\"eventHash\":\"<from-plan-meta>\",\"nodeId\":\"world_a_you_now\"}"
+  -d "{\"eventHash\":\"<from-plan-meta>\",\"nodeId\":\"world_a\"}"
 ```
 
-### 6.3 加载 Demo 场景
+### 6.3 Role 聊天
+
+```bash
+curl -X POST http://localhost:8787/api/chat \
+  -H "Content-Type: application/json" \
+  -d "{\"eventHash\":\"<from-plan-meta>\",\"nodeId\":\"world_a\",\"nodeTitle\":\"World A\",\"roleId\":\"you_now\",\"message\":\"What should I do first?\"}"
+```
+
+### 6.4 派生子世界
+
+```bash
+curl -X POST http://localhost:8787/api/branch \
+  -H "Content-Type: application/json" \
+  -d "{\"eventHash\":\"<from-plan-meta>\",\"parentNodeId\":\"world_a\",\"parentTitle\":\"World A\",\"userQuestion\":\"What if we prioritize retention over speed?\"}"
+```
+
+### 6.5 加载 Demo 场景
 
 ```bash
 curl http://localhost:8787/api/demo/offer-decision

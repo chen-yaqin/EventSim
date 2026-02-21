@@ -131,6 +131,15 @@ a {
   font: inherit;
 }
 
+.side-panel textarea {
+  width: 100%;
+  min-height: 70px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  padding: 10px;
+  font: inherit;
+}
+
 .row {
   display: flex;
   gap: 10px;
@@ -188,6 +197,10 @@ select {
   margin-top: 0;
 }
 
+.side-panel h4 {
+  margin-bottom: 8px;
+}
+
 .chip-row {
   display: flex;
   gap: 6px;
@@ -208,6 +221,12 @@ select {
   color: #9a3412;
 }
 
+.chip-node {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.18);
+  color: #ecfeff;
+}
+
 .confidence,
 .muted,
 .disclaimer {
@@ -218,6 +237,68 @@ select {
 .skeleton-list {
   display: grid;
   gap: 8px;
+}
+
+.chat-box {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+}
+
+.chat-line {
+  font-size: 13px;
+  padding: 8px;
+  border-radius: 10px;
+}
+
+.chat-user {
+  background: #ecfeff;
+  border: 1px solid #99f6e4;
+}
+
+.chat-assistant {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  white-space: pre-wrap;
+}
+
+.world-node {
+  color: inherit;
+  font-size: 13px;
+}
+
+.world-node p {
+  margin: 8px 0;
+}
+
+.world-node-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.node-toggle {
+  border: 1px solid rgba(236, 254, 255, 0.6);
+  background: rgba(236, 254, 255, 0.15);
+  color: #ecfeff;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.node-confidence {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 11px;
+  opacity: 0.85;
 }
 
 .skeleton {

@@ -18,6 +18,24 @@ export async function fetchExpand(payload) {
   return parseJson(response);
 }
 
+export async function fetchBranch(payload) {
+  const response = await fetch(`${BASE_URL}/api/branch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return parseJson(response);
+}
+
+export async function fetchChat(payload) {
+  const response = await fetch(`${BASE_URL}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return parseJson(response);
+}
+
 export async function fetchDemo(id) {
   const response = await fetch(`${BASE_URL}/api/demo/${id}`);
   return parseJson(response);

@@ -1,8 +1,8 @@
 import cors from "cors";
+import crypto from "node:crypto";
 import express from "express";
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,9 +18,9 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 const ROLE_PRESETS = [
-  { roleId: "you_now", title: "You-Now", focus: "immediate constraints and practicality" },
-  { roleId: "you_5y", title: "You-in-5-Years", focus: "long-term compounding and regret minimization" },
-  { roleId: "neutral_advisor", title: "Neutral Advisor", focus: "balanced tradeoff framing and risk calibration" }
+  { roleId: "you_now", title: "You-Now", style: "practical and immediate constraints" },
+  { roleId: "you_5y", title: "You-in-5-Years", style: "long-term compounding and regret minimization" },
+  { roleId: "neutral_advisor", title: "Neutral Advisor", style: "balanced tradeoffs and risk framing" }
 ];
 
 const RESTRICTED_PATTERNS = [
@@ -32,7 +32,6 @@ const RESTRICTED_PATTERNS = [
 ];
 
 const rateState = new Map();
-
 ensureDir(CACHE_DIR);
 
 app.get("/api/health", (_req, res) => {
@@ -54,7 +53,7 @@ app.post("/api/plan", (req, res) => {
   }
 
   const eventHash = hashText(eventText.trim().toLowerCase());
-  const promptVersion = "v1";
+  const promptVersion = "v2";
   const key = hashText(JSON.stringify({ t: eventText, o: options, p: promptVersion }));
   const cacheFile = path.join(CACHE_DIR, `plan_${key}.json`);
 
@@ -66,7 +65,7 @@ app.post("/api/plan", (req, res) => {
     });
   }
 
-  const graph = buildGraph(eventText, options);
+  const graph = buildInitialGraph(eventText, options);
   const payload = {
     graph,
     meta: {
@@ -74,7 +73,7 @@ app.post("/api/plan", (req, res) => {
       eventHash,
       promptVersion,
       generatedAt: new Date().toISOString(),
-      tokenEstimate: 780
+      tokenEstimate: 640
     }
   };
 
@@ -84,7 +83,7 @@ app.post("/api/plan", (req, res) => {
 
 app.post("/api/expand", (req, res) => {
   const ip = req.headers["x-forwarded-for"]?.toString() || req.socket.remoteAddress || "local";
-  if (isRateLimited(ip)) {
+  if (isRateLimited(ip, 6_000, 8)) {
     return res.status(429).json({ error: "rate_limited", message: "Too many requests. Please wait a few seconds." });
   }
 
@@ -93,7 +92,7 @@ app.post("/api/expand", (req, res) => {
     return res.status(400).json({ error: "eventHash and nodeId are required" });
   }
 
-  const promptVersion = "v1";
+  const promptVersion = "v2";
   const key = hashText(JSON.stringify({ eventHash, nodeId, promptVersion }));
   const cacheFile = path.join(CACHE_DIR, `expand_${key}.json`);
 
@@ -111,10 +110,92 @@ app.post("/api/expand", (req, res) => {
       nodeId,
       promptVersion,
       generatedAt: new Date().toISOString(),
-      tokenEstimate: 360
+      tokenEstimate: 250
     }
   };
 
+  writeJson(cacheFile, payload);
+  res.json(payload);
+});
+
+app.post("/api/branch", (req, res) => {
+  const ip = req.headers["x-forwarded-for"]?.toString() || req.socket.remoteAddress || "local";
+  if (isRateLimited(ip, 6_000, 6)) {
+    return res.status(429).json({ error: "rate_limited", message: "Too many requests. Please wait a few seconds." });
+  }
+
+  const { eventHash, parentNodeId, parentTitle, userQuestion } = req.body || {};
+  if (!eventHash || !parentNodeId) {
+    return res.status(400).json({ error: "eventHash and parentNodeId are required" });
+  }
+  if (isRestricted(userQuestion || "")) {
+    return res.status(400).json({ error: "restricted_content", message: "This query category is not supported." });
+  }
+
+  const promptVersion = "v2";
+  const key = hashText(JSON.stringify({ eventHash, parentNodeId, parentTitle, userQuestion, promptVersion }));
+  const cacheFile = path.join(CACHE_DIR, `branch_${key}.json`);
+  if (fs.existsSync(cacheFile)) {
+    const cached = readJson(cacheFile);
+    return res.json({ ...cached, meta: { ...cached.meta, cache: "hit" } });
+  }
+
+  const parentLabel = parentTitle || parentNodeId;
+  const children = buildBranchChildren(parentNodeId, parentLabel, userQuestion);
+  const payload = {
+    nodes: children.nodes,
+    edges: children.edges,
+    meta: {
+      cache: "miss",
+      parentNodeId,
+      generatedAt: new Date().toISOString(),
+      tokenEstimate: 420
+    }
+  };
+  writeJson(cacheFile, payload);
+  res.json(payload);
+});
+
+app.post("/api/chat", (req, res) => {
+  const ip = req.headers["x-forwarded-for"]?.toString() || req.socket.remoteAddress || "local";
+  if (isRateLimited(ip, 4_000, 10)) {
+    return res.status(429).json({ error: "rate_limited", message: "Too many chat requests. Slow down briefly." });
+  }
+
+  const { eventHash, nodeId, nodeTitle, roleId, message, history = [] } = req.body || {};
+  if (!eventHash || !nodeId || !roleId || !message) {
+    return res.status(400).json({ error: "eventHash, nodeId, roleId, message are required" });
+  }
+  if (!ROLE_PRESETS.some((r) => r.roleId === roleId)) {
+    return res.status(400).json({ error: "invalid_role" });
+  }
+  if (isRestricted(message)) {
+    return res.status(400).json({
+      error: "restricted_content",
+      message: "This assistant is for reflection only and cannot address this category."
+    });
+  }
+
+  const promptVersion = "v2";
+  const key = hashText(JSON.stringify({ eventHash, nodeId, roleId, message, history, promptVersion }));
+  const cacheFile = path.join(CACHE_DIR, `chat_${key}.json`);
+  if (fs.existsSync(cacheFile)) {
+    const cached = readJson(cacheFile);
+    return res.json({ ...cached, meta: { ...cached.meta, cache: "hit" } });
+  }
+
+  const role = ROLE_PRESETS.find((r) => r.roleId === roleId);
+  const reply = buildRoleReply(role, nodeTitle || nodeId, message);
+  const payload = {
+    reply,
+    meta: {
+      cache: "miss",
+      roleId,
+      nodeId,
+      generatedAt: new Date().toISOString(),
+      tokenEstimate: 180
+    }
+  };
   writeJson(cacheFile, payload);
   res.json(payload);
 });
@@ -134,14 +215,12 @@ app.listen(PORT, () => {
   console.log(`[eventsim] backend listening on http://localhost:${PORT}`);
 });
 
-function buildGraph(eventText, options) {
+function buildInitialGraph(eventText, options) {
   const timeframe = options.timeframe || "1 year";
   const stakes = options.stakes || "medium";
   const goal = options.goal || "growth";
-  const worldCount = clampInt(options.worldCount, 1, 3, 3);
-  const roleCount = clampInt(options.roleCount, 2, 3, 3);
-
   const rootId = "root";
+
   const nodes = [
     {
       id: rootId,
@@ -152,186 +231,159 @@ function buildGraph(eventText, options) {
       tags: [stakes, goal],
       confidence: 0.76,
       parentId: null,
-      worldId: null,
-      roleId: null,
+      depth: 0,
+      collapsed: false,
       data: { timeframe, stakes, goal, eventText }
     }
   ];
 
+  const seedWorlds = [
+    ["a", "minimal", "Small adjustment, most assumptions remain intact.", "Change one controllable factor", 0.74],
+    ["b", "moderate", "A meaningful pivot with moderate disruption.", "Change decision and one constraint", 0.68],
+    ["c", "radical", "High-variance move with a different strategic frame.", "Shift environment and goals", 0.59]
+  ];
+
   const edges = [];
-  const worldBlueprints = [
-    {
-      worldId: "world_a",
-      distance: "minimal",
-      title: "World A: Minimal shift",
-      delta: "Change one controllable factor",
-      one_liner: "Small adjustment, most assumptions remain intact.",
-      changedVariables: ["single tactical decision"],
-      plausibleBecause: "It is directly controllable this week.",
-      constants: ["core goals", "current constraints"]
-    },
-    {
-      worldId: "world_b",
-      distance: "moderate",
-      title: "World B: Moderate shift",
-      delta: "Decision and one constraint change",
-      one_liner: "A meaningful pivot with moderate disruption.",
-      changedVariables: ["primary decision", "resource constraint"],
-      plausibleBecause: "Requires coordination but remains feasible.",
-      constants: ["identity-level values", "timeline horizon"]
-    },
-    {
-      worldId: "world_c",
-      distance: "radical",
-      title: "World C: Radical shift",
-      delta: "Environment and goal assumptions shift",
-      one_liner: "High-variance move with a different strategic frame.",
-      changedVariables: ["operating environment", "goal priorities"],
-      plausibleBecause: "A deliberate reset can be chosen intentionally.",
-      constants: ["core strengths", "non-negotiable responsibilities"]
-    }
-  ].slice(0, worldCount);
-
-  for (const world of worldBlueprints) {
+  for (const [suffix, distance, oneLiner, delta, confidence] of seedWorlds) {
+    const id = `world_${suffix}`;
     nodes.push({
-      id: world.worldId,
+      id,
       type: "world",
-      title: world.title,
-      delta: world.delta,
-      one_liner: world.one_liner,
-      tags: [world.distance, goal],
-      confidence: world.distance === "radical" ? 0.59 : world.distance === "moderate" ? 0.68 : 0.74,
+      title: `World ${suffix.toUpperCase()}`,
+      delta,
+      one_liner: oneLiner,
+      tags: [distance, goal],
+      confidence,
       parentId: rootId,
-      worldId: world.worldId,
-      roleId: null,
-      data: {
-        distance: world.distance,
-        changedVariables: world.changedVariables,
-        plausibleBecause: world.plausibleBecause,
-        constants: world.constants
-      }
+      depth: 1,
+      collapsed: false,
+      data: { distance, branchLabel: suffix.toUpperCase() }
     });
-
-    edges.push({
-      id: `e_${rootId}_${world.worldId}`,
-      source: rootId,
-      target: world.worldId,
-      label: "counterfactual"
-    });
-
-    for (const role of ROLE_PRESETS.slice(0, roleCount)) {
-      const roleNodeId = `${world.worldId}_${role.roleId}`;
-      nodes.push({
-        id: roleNodeId,
-        type: "role",
-        title: role.title,
-        delta: role.focus,
-        one_liner: oneLinerForRole(role.roleId, world.distance),
-        tags: [role.roleId, world.distance],
-        confidence: confidenceByRole(role.roleId),
-        parentId: world.worldId,
-        worldId: world.worldId,
-        roleId: role.roleId
-      });
-
-      edges.push({
-        id: `e_${world.worldId}_${roleNodeId}`,
-        source: world.worldId,
-        target: roleNodeId,
-        label: "role lens"
-      });
-    }
+    edges.push({ id: `e_${rootId}_${id}`, source: rootId, target: id, label: "counterfactual" });
   }
 
   return { nodes, edges };
 }
 
-function buildNodeDetails(nodeId) {
-  const isWorld = /^world_[abc]$/.test(nodeId);
-  const isRole = /^world_[abc]_(you_now|you_5y|neutral_advisor)$/.test(nodeId);
-  const roleId = isRole ? nodeId.split("_").slice(2).join("_") : null;
+function buildBranchChildren(parentNodeId, parentTitle, userQuestion) {
+  const children = [];
+  const edges = [];
+  const base = parentNodeId.startsWith("world_") ? parentNodeId : `world_${parentNodeId}`;
+  const questionHint = shortTitle(userQuestion || "user follow-up");
 
-  if (isWorld) {
+  const variants = [
+    { s: "1", distance: "minimal", delta: "Refine one variable", confidence: 0.72 },
+    { s: "2", distance: "moderate", delta: "Adjust decision and constraints", confidence: 0.66 },
+    { s: "3", distance: "radical", delta: "Reframe goals and environment", confidence: 0.58 }
+  ];
+
+  for (const variant of variants) {
+    const id = `${base}${variant.s}`;
+    const label = branchLabelFromNodeId(id);
+    children.push({
+      id,
+      type: "world",
+      title: `World ${label}`,
+      delta: variant.delta,
+      one_liner: `${parentTitle} -> ${variant.distance} follow-up via ${questionHint}.`,
+      tags: [variant.distance, "branched"],
+      confidence: variant.confidence,
+      parentId: parentNodeId,
+      collapsed: false,
+      data: { distance: variant.distance, branchLabel: label, derivedFromQuestion: userQuestion || "" }
+    });
+    edges.push({
+      id: `e_${parentNodeId}_${id}`,
+      source: parentNodeId,
+      target: id,
+      label: "counterfactual"
+    });
+  }
+
+  return { nodes: children, edges };
+}
+
+function buildNodeDetails(nodeId) {
+  if (nodeId === "root") {
     return {
       nodeId,
       consequences: [
-        "Primary tradeoff becomes clearer",
-        "Execution friction changes materially",
-        "Second-order effects emerge quickly"
+        "Baseline assumptions are kept fixed",
+        "Use child worlds for what-if analysis",
+        "Compare branches before committing"
       ],
-      why_it_changes:
-        "Changing assumptions alters feasible actions and expected payoffs. The timeline and constraints force different priorities.",
-      next_question: "Which variable in this world is easiest to validate this week?",
-      risk_flags: ["uncertainty", "tradeoff"],
-      assumptions: ["Context remains mostly stable", "Decision owner has agency"],
-      checklist: ["Define success metric", "Run one low-cost test", "Review downside limits"]
-    };
-  }
-
-  if (isRole) {
-    return detailsForRole(nodeId, roleId);
-  }
-
-  return {
-    nodeId,
-    consequences: ["No additional details available", "Try selecting a world or role", "Use compare mode for deltas"],
-    why_it_changes: "This node type is informational and does not hold expanded analysis.",
-    next_question: "Which role perspective should you inspect next?",
-    risk_flags: [],
-    assumptions: [],
-    checklist: []
-  };
-}
-
-function detailsForRole(nodeId, roleId) {
-  if (roleId === "you_now") {
-    return {
-      nodeId,
-      consequences: ["Cashflow and time pressure dominate", "Operational complexity matters most", "Stress load changes near-term quality"],
-      why_it_changes:
-        "This perspective prioritizes immediate constraints and execution reliability. It discounts uncertain long-term upside when present costs are high.",
-      next_question: "What decision lowers stress without closing important future options?",
-      risk_flags: ["tradeoff"],
-      assumptions: ["Bandwidth is limited", "Short-term stability matters"],
-      checklist: ["List hard constraints", "Cut one optional task", "Choose reversible action first"]
-    };
-  }
-
-  if (roleId === "you_5y") {
-    return {
-      nodeId,
-      consequences: ["Compounding effects dominate", "Skill trajectory matters more", "Short discomfort may be acceptable"],
-      why_it_changes:
-        "This lens values long-term option value and regret minimization. It tolerates temporary instability when it improves future strategic position.",
-      next_question: "Which choice creates the strongest learning compounding over 5 years?",
-      risk_flags: ["uncertainty"],
-      assumptions: ["Future flexibility has high value", "Delayed payoff is acceptable"],
-      checklist: ["Define 5-year objective", "Score compounding potential", "Stress-test downside scenario"]
+      why_it_changes: "The root is only the anchor context. Branches carry actionable divergences.",
+      next_question: "Which first-level world seems most plausible to explore deeper?",
+      risk_flags: ["uncertainty"]
     };
   }
 
   return {
     nodeId,
-    consequences: ["Both upside and downside are surfaced", "Hidden assumptions become explicit", "Decision quality improves with framing"],
+    consequences: [
+      "Downstream priorities may reorder",
+      "Execution constraints can change",
+      "Second-order effects can appear quickly"
+    ],
     why_it_changes:
-      "A neutral advisor balances values, constraints, and uncertainty rather than optimizing one dimension. This can reveal stable choices across worlds.",
-    next_question: "What option remains robust across at least two worlds?",
-    risk_flags: ["tradeoff", "uncertainty"],
-    assumptions: ["Inputs are incomplete", "No option is risk-free"],
-    checklist: ["List alternatives", "Compare downside asymmetry", "Pick trigger for revisiting decision"]
+      "This world modifies assumptions and therefore shifts feasible actions, risks, and expected outcomes.",
+    next_question: "What small test can validate this branch in the next 7 days?",
+    risk_flags: ["tradeoff", "uncertainty"]
   };
 }
 
-function oneLinerForRole(roleId, distance) {
-  if (roleId === "you_now") return `Immediate feasibility under ${distance} change.`;
-  if (roleId === "you_5y") return `Long-term compounding under ${distance} change.`;
-  return `Balanced tradeoff framing under ${distance} change.`;
+function buildRoleReply(role, nodeTitle, message) {
+  const intent = summarizeIntent(message);
+  if (role.roleId === "you_now") {
+    return {
+      roleId: role.roleId,
+      roleTitle: role.title,
+      answer: `From You-Now on ${nodeTitle}: prioritize immediate feasibility. ${intent}`,
+      bullets: [
+        "Identify one immediate blocker",
+        "Choose the lowest-friction next action",
+        "Set a 48-hour checkpoint"
+      ],
+      nextQuestion: "What concrete step can you finish by tomorrow?"
+    };
+  }
+
+  if (role.roleId === "you_5y") {
+    return {
+      roleId: role.roleId,
+      roleTitle: role.title,
+      answer: `From You-in-5-Years on ${nodeTitle}: optimize for compounding, not comfort. ${intent}`,
+      bullets: [
+        "Protect long-term option value",
+        "Prefer skill-building over short-term optics",
+        "Evaluate regret if repeated for 12 months"
+      ],
+      nextQuestion: "Which option compounds your learning and network the fastest?"
+    };
+  }
+
+  return {
+    roleId: role.roleId,
+    roleTitle: role.title,
+    answer: `Neutral Advisor for ${nodeTitle}: balance upside, downside, and reversibility. ${intent}`,
+    bullets: [
+      "List assumptions explicitly",
+      "Compare downside asymmetry",
+      "Pick a reversible experiment first"
+    ],
+    nextQuestion: "Which option remains robust across multiple future branches?"
+  };
 }
 
-function confidenceByRole(roleId) {
-  if (roleId === "neutral_advisor") return 0.72;
-  if (roleId === "you_5y") return 0.67;
-  return 0.7;
+function summarizeIntent(text) {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  const words = cleaned.split(" ").slice(0, 20).join(" ");
+  return `Your question focus: ${words}.`;
+}
+
+function branchLabelFromNodeId(nodeId) {
+  return nodeId.replace(/^world_/, "").toUpperCase();
 }
 
 function shortTitle(input) {
@@ -356,19 +408,11 @@ function hashText(value) {
 }
 
 function isRestricted(text) {
-  return RESTRICTED_PATTERNS.some((p) => p.test(text));
+  return RESTRICTED_PATTERNS.some((p) => p.test(text || ""));
 }
 
-function clampInt(value, min, max, fallback) {
-  const n = Number(value);
-  if (!Number.isInteger(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
-}
-
-function isRateLimited(key) {
+function isRateLimited(key, windowMs, maxRequests) {
   const now = Date.now();
-  const windowMs = 6_000;
-  const maxRequests = 6;
   const queue = rateState.get(key) || [];
   const fresh = queue.filter((t) => now - t < windowMs);
   if (fresh.length >= maxRequests) return true;

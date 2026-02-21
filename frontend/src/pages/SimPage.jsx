@@ -1,11 +1,10 @@
 import { useMemo, useState } from "react";
-import CompareModal from "../components/CompareModal.jsx";
 import GraphCanvas from "../components/GraphCanvas.jsx";
 import ScenarioForm from "../components/ScenarioForm.jsx";
 import SidePanel from "../components/SidePanel.jsx";
 import ToastStack from "../components/ToastStack.jsx";
 import TopBar from "../components/TopBar.jsx";
-import { fetchExpand, fetchPlan } from "../lib/api.js";
+import { fetchBranch, fetchChat, fetchExpand, fetchPlan } from "../lib/api.js";
 import { toReactFlow } from "../lib/graph.js";
 
 export default function SimPage() {
@@ -23,14 +22,18 @@ export default function SimPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [expanded, setExpanded] = useState({});
   const [loadingExpand, setLoadingExpand] = useState(false);
-  const [compareOpen, setCompareOpen] = useState(false);
-  const [pinned, setPinned] = useState([]);
   const [toasts, setToasts] = useState([]);
+  const [roleId, setRoleId] = useState("you_now");
+  const [chatByKey, setChatByKey] = useState({});
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [branchInput, setBranchInput] = useState("");
+  const [branchLoading, setBranchLoading] = useState(false);
 
   const selectedNode = useMemo(() => graph.nodes.find((n) => n.id === selectedId) || null, [graph, selectedId]);
-  const flow = useMemo(() => toReactFlow(graph), [graph]);
-  const leftPinned = pinned[0] || selectedNode;
-  const rightPinned = pinned[1] || null;
+  const flow = useMemo(() => toReactFlow(graph, handleToggleCollapse), [graph]);
+  const chatKey = selectedNode ? `${selectedNode.id}:${roleId}` : "";
+  const chatMessages = chatByKey[chatKey] || [];
 
   async function handleGenerate() {
     setLoadingPlan(true);
@@ -40,19 +43,19 @@ export default function SimPage() {
         options: {
           timeframe: form.timeframe,
           stakes: form.stakes,
-          goal: form.goal,
-          worldCount: 3,
-          roleCount: 3
+          goal: form.goal
         }
       };
       const result = await fetchPlan(payload);
       setGraph(result.graph);
       setEventHash(result.meta.eventHash);
-      setSelectedId(null);
+      setSelectedId("root");
       setExpanded({});
-      setPinned([]);
+      setChatByKey({});
+      setChatInput("");
+      setBranchInput("");
       setCallsUsed((x) => x + 1);
-      toast(result.meta.cache === "hit" ? "Loaded from cache" : "Graph generated", "success");
+      toast(result.meta.cache === "hit" ? "Loaded plan from cache" : "Graph generated", "success");
     } catch (error) {
       toast(error.message, "error");
     } finally {
@@ -62,18 +65,15 @@ export default function SimPage() {
 
   async function handleNodeClick(_evt, node) {
     setSelectedId(node.id);
-    if (expanded[node.id]) {
-      toast("Loaded from cache", "info");
-      return;
-    }
-    if (!eventHash) return;
+    setBranchInput("");
+    if (expanded[node.id] || !eventHash) return;
 
     setLoadingExpand(true);
     try {
       const result = await fetchExpand({ eventHash, nodeId: node.id });
       setExpanded((prev) => ({ ...prev, [node.id]: result.details }));
       setCallsUsed((x) => x + 1);
-      toast(result.meta.cache === "hit" ? "Loaded from cache" : "Expanded node", "success");
+      if (result.meta.cache === "hit") toast("Node details from cache", "info");
     } catch (error) {
       toast(error.message, error.status === 429 ? "warn" : "error");
     } finally {
@@ -81,9 +81,76 @@ export default function SimPage() {
     }
   }
 
+  async function handleSendChat() {
+    if (!selectedNode || !chatInput.trim() || !eventHash) return;
+    const userText = chatInput.trim();
+    const roleChatKey = `${selectedNode.id}:${roleId}`;
+    const previous = chatByKey[roleChatKey] || [];
+    const userMessage = { id: `${Date.now()}_u`, sender: "user", text: userText };
+    setChatByKey((prev) => ({ ...prev, [roleChatKey]: [...previous, userMessage] }));
+    setChatInput("");
+    setChatLoading(true);
+
+    try {
+      const result = await fetchChat({
+        eventHash,
+        nodeId: selectedNode.id,
+        nodeTitle: selectedNode.title,
+        roleId,
+        message: userText,
+        history: previous.map((item) => ({ sender: item.sender, text: item.text }))
+      });
+      const reply = result.reply;
+      const assistantText = `${reply.answer}\n- ${reply.bullets.join("\n- ")}\nQ: ${reply.nextQuestion}`;
+      const assistantMessage = {
+        id: `${Date.now()}_a`,
+        sender: "assistant",
+        roleTitle: reply.roleTitle,
+        text: assistantText
+      };
+      setChatByKey((prev) => ({ ...prev, [roleChatKey]: [...(prev[roleChatKey] || []), assistantMessage] }));
+      setCallsUsed((x) => x + 1);
+    } catch (error) {
+      toast(error.message, error.status === 429 ? "warn" : "error");
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
+  async function handleBranchGenerate() {
+    if (!selectedNode || selectedNode.type !== "world" || !branchInput.trim() || !eventHash) return;
+    setBranchLoading(true);
+    try {
+      const result = await fetchBranch({
+        eventHash,
+        parentNodeId: selectedNode.id,
+        parentTitle: selectedNode.title,
+        userQuestion: branchInput.trim()
+      });
+      setGraph((prev) => mergeGraph(prev, result, selectedNode.id));
+      setCallsUsed((x) => x + 1);
+      setBranchInput("");
+      toast(result.meta.cache === "hit" ? "Branch loaded from cache" : "Child worlds generated", "success");
+    } catch (error) {
+      toast(error.message, error.status === 429 ? "warn" : "error");
+    } finally {
+      setBranchLoading(false);
+    }
+  }
+
+  function handleToggleCollapse(nodeId = selectedNode?.id) {
+    if (!nodeId) return;
+    setGraph((prev) => ({
+      ...prev,
+      nodes: prev.nodes.map((node) =>
+        node.id === nodeId ? { ...node, collapsed: !node.collapsed } : node
+      )
+    }));
+  }
+
   function handleExport() {
     if (!graph.nodes.length) return toast("No graph to export", "warn");
-    const data = JSON.stringify({ graph, eventHash, form, expanded }, null, 2);
+    const data = JSON.stringify({ graph, eventHash, form, expanded, chatByKey }, null, 2);
     const blob = new Blob([data], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -107,16 +174,6 @@ export default function SimPage() {
     toast("Summary copied", "success");
   }
 
-  function handlePin() {
-    if (!selectedNode) return;
-    setPinned((prev) => {
-      if (prev.some((n) => n.id === selectedNode.id)) return prev;
-      if (prev.length === 2) return [prev[1], selectedNode];
-      return [...prev, selectedNode];
-    });
-    toast("Pinned for compare", "info");
-  }
-
   function toast(message, kind = "info") {
     const id = `${Date.now()}_${Math.random()}`;
     setToasts((prev) => [...prev, { id, message, kind }].slice(-4));
@@ -137,14 +194,46 @@ export default function SimPage() {
           selectedNode={selectedNode}
           details={selectedNode ? expanded[selectedNode.id] : null}
           loading={loadingExpand}
-          onCompare={() => setCompareOpen(true)}
-          onPin={handlePin}
+          roleId={roleId}
+          onRoleChange={setRoleId}
+          chatMessages={chatMessages}
+          chatInput={chatInput}
+          onChatInputChange={setChatInput}
+          onSendChat={handleSendChat}
+          chatLoading={chatLoading}
+          branchInput={branchInput}
+          onBranchInputChange={setBranchInput}
+          onBranchGenerate={handleBranchGenerate}
+          branchLoading={branchLoading}
+          onToggleCollapse={() => handleToggleCollapse()}
           onCopySummary={handleCopySummary}
         />
       </div>
 
-      <CompareModal open={compareOpen} left={leftPinned} right={rightPinned} onClose={() => setCompareOpen(false)} />
       <ToastStack items={toasts} />
     </main>
   );
+}
+
+function mergeGraph(current, branchPayload, parentNodeId) {
+  const nodesById = new Map(
+    current.nodes.map((node) => [
+      node.id,
+      node.id === parentNodeId ? { ...node, collapsed: false } : node
+    ])
+  );
+  for (const node of branchPayload.nodes || []) {
+    nodesById.set(node.id, {
+      collapsed: false,
+      ...node
+    });
+  }
+  const edgesById = new Map(current.edges.map((edge) => [edge.id, edge]));
+  for (const edge of branchPayload.edges || []) {
+    edgesById.set(edge.id, edge);
+  }
+  return {
+    nodes: [...nodesById.values()],
+    edges: [...edgesById.values()]
+  };
 }

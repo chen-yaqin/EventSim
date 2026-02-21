@@ -1,19 +1,37 @@
+const ROLES = [
+  { id: "you_now", label: "You-Now" },
+  { id: "you_5y", label: "You-in-5-Years" },
+  { id: "neutral_advisor", label: "Neutral Advisor" }
+];
+
 export default function SidePanel({
   selectedNode,
   details,
   loading,
-  onCompare,
-  onPin,
+  roleId,
+  onRoleChange,
+  chatMessages,
+  chatInput,
+  onChatInputChange,
+  onSendChat,
+  chatLoading,
+  branchInput,
+  onBranchInputChange,
+  onBranchGenerate,
+  branchLoading,
+  onToggleCollapse,
   onCopySummary
 }) {
   if (!selectedNode) {
     return (
       <aside className="card side-panel">
-        <h3>Node Details</h3>
-        <p>Select a node to expand structured insights.</p>
+        <h3>Node Workspace</h3>
+        <p>Select a world node to inspect details, chat by role, and continue branching.</p>
       </aside>
     );
   }
+
+  const canBranch = selectedNode.type === "world";
 
   return (
     <aside className="card side-panel">
@@ -46,29 +64,50 @@ export default function SidePanel({
           <p>{details.why_it_changes}</p>
           <h4>Next Question</h4>
           <p>{details.next_question}</p>
-          {(details.risk_flags || []).length > 0 && (
-            <>
-              <h4>Risk Flags</h4>
-              <div className="chip-row">
-                {details.risk_flags.map((flag) => (
-                  <span key={flag} className="chip chip-warn">
-                    {flag}
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
         </>
       ) : (
         <p>No expanded details yet.</p>
       )}
 
+      <h4>Role Chatbot</h4>
+      <select value={roleId} onChange={(e) => onRoleChange(e.target.value)}>
+        {ROLES.map((role) => (
+          <option key={role.id} value={role.id}>
+            {role.label}
+          </option>
+        ))}
+      </select>
+      <div className="chat-box">
+        {(chatMessages || []).map((msg) => (
+          <div key={msg.id} className={`chat-line chat-${msg.sender}`}>
+            <strong>{msg.sender === "user" ? "You" : msg.roleTitle || "Assistant"}:</strong> {msg.text}
+          </div>
+        ))}
+        {!chatMessages?.length && <p className="muted">Start a conversation for this node and role.</p>}
+      </div>
+      <textarea
+        value={chatInput}
+        onChange={(e) => onChatInputChange(e.target.value)}
+        placeholder="Ask this role how to evaluate this world..."
+      />
+      <button className="btn btn-soft" onClick={onSendChat} disabled={chatLoading || !chatInput.trim()}>
+        {chatLoading ? "Sending..." : "Send"}
+      </button>
+
+      <h4>Branch This Node</h4>
+      <p className="muted">Ask a follow-up question to generate {selectedNode.title} -> child worlds (1/2/3).</p>
+      <textarea
+        value={branchInput}
+        onChange={(e) => onBranchInputChange(e.target.value)}
+        placeholder="Example: What if we optimize for retention over speed?"
+      />
+      <button className="btn" onClick={onBranchGenerate} disabled={!canBranch || branchLoading || !branchInput.trim()}>
+        {branchLoading ? "Generating..." : "Generate Child Worlds"}
+      </button>
+
       <div className="row">
-        <button className="btn btn-soft" onClick={onCompare}>
-          Compare
-        </button>
-        <button className="btn btn-soft" onClick={onPin}>
-          Pin
+        <button className="btn btn-soft" onClick={onToggleCollapse}>
+          {selectedNode.collapsed ? "Expand Node" : "Collapse Node"}
         </button>
         <button className="btn btn-soft" onClick={onCopySummary}>
           Copy Summary
