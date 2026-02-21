@@ -51,7 +51,6 @@ app.post("/api/plan", async (req, res) => {
   if (!eventText || typeof eventText !== "string") {
     return res.status(400).json({ error: "eventText is required" });
   }
-
   if (isRestricted(eventText)) {
     return res.status(400).json({
       error: "restricted_content",
@@ -64,36 +63,30 @@ app.post("/api/plan", async (req, res) => {
   const promptVersion = "v3";
   const key = hashText(JSON.stringify({ t: eventText, o: options, p: promptVersion }));
   const cacheFile = path.join(CACHE_DIR, `plan_${key}.json`);
-
   if (fs.existsSync(cacheFile)) {
     const cached = readJson(cacheFile);
-    return res.json({
-      ...cached,
-      meta: { ...cached.meta, cache: "hit" }
-    });
+    return res.json({ ...cached, meta: { ...cached.meta, cache: "hit" } });
   }
 
-  try {
-    const graph = ANTHROPIC_CONFIG.apiKey
-      ? await buildInitialGraphWithClaude(eventText, options)
-      : buildInitialGraphFallback(eventText, options);
-    const payload = {
-      graph,
-      meta: {
-        cache: "miss",
-        provider: ANTHROPIC_CONFIG.apiKey ? "anthropic" : "fallback",
-        eventHash,
-        promptVersion,
-        generatedAt: new Date().toISOString(),
-        tokenEstimate: 640
-      }
-    };
-    writeJson(cacheFile, payload);
-    return res.json(payload);
-  } catch (error) {
-    console.error("[plan]", error);
-    return res.status(500).json({ error: "plan_failed", message: "Failed to generate plan graph." });
-  }
+  const generated = await withProviderFallback(
+    () => buildInitialGraphWithClaude(eventText, options),
+    () => buildInitialGraphFallback(eventText, options),
+    "plan"
+  );
+  const payload = {
+    graph: generated.data,
+    meta: {
+      cache: "miss",
+      provider: generated.provider,
+      fallbackReason: generated.fallbackReason,
+      eventHash,
+      promptVersion,
+      generatedAt: new Date().toISOString(),
+      tokenEstimate: 640
+    }
+  };
+  writeJson(cacheFile, payload);
+  return res.json(payload);
 });
 
 app.post("/api/expand", async (req, res) => {
@@ -101,43 +94,37 @@ app.post("/api/expand", async (req, res) => {
   if (isRateLimited(ip, 6_000, 8)) {
     return res.status(429).json({ error: "rate_limited", message: "Too many requests. Please wait a few seconds." });
   }
-
   const { eventHash, nodeId } = req.body || {};
-  if (!eventHash || !nodeId) {
-    return res.status(400).json({ error: "eventHash and nodeId are required" });
-  }
+  if (!eventHash || !nodeId) return res.status(400).json({ error: "eventHash and nodeId are required" });
 
   const promptVersion = "v3";
   const key = hashText(JSON.stringify({ eventHash, nodeId, promptVersion }));
   const cacheFile = path.join(CACHE_DIR, `expand_${key}.json`);
-
   if (fs.existsSync(cacheFile)) {
     const cached = readJson(cacheFile);
     return res.json({ ...cached, meta: { ...cached.meta, cache: "hit" } });
   }
 
-  try {
-    const details = ANTHROPIC_CONFIG.apiKey
-      ? await buildNodeDetailsWithClaude(nodeId)
-      : buildNodeDetailsFallback(nodeId);
-    const payload = {
-      details,
-      meta: {
-        cache: "miss",
-        provider: ANTHROPIC_CONFIG.apiKey ? "anthropic" : "fallback",
-        eventHash,
-        nodeId,
-        promptVersion,
-        generatedAt: new Date().toISOString(),
-        tokenEstimate: 250
-      }
-    };
-    writeJson(cacheFile, payload);
-    return res.json(payload);
-  } catch (error) {
-    console.error("[expand]", error);
-    return res.status(500).json({ error: "expand_failed", message: "Failed to expand node details." });
-  }
+  const generated = await withProviderFallback(
+    () => buildNodeDetailsWithClaude(nodeId),
+    () => buildNodeDetailsFallback(nodeId),
+    "expand"
+  );
+  const payload = {
+    details: generated.data,
+    meta: {
+      cache: "miss",
+      provider: generated.provider,
+      fallbackReason: generated.fallbackReason,
+      eventHash,
+      nodeId,
+      promptVersion,
+      generatedAt: new Date().toISOString(),
+      tokenEstimate: 250
+    }
+  };
+  writeJson(cacheFile, payload);
+  return res.json(payload);
 });
 
 app.post("/api/branch", async (req, res) => {
@@ -145,45 +132,40 @@ app.post("/api/branch", async (req, res) => {
   if (isRateLimited(ip, 6_000, 6)) {
     return res.status(429).json({ error: "rate_limited", message: "Too many requests. Please wait a few seconds." });
   }
-
-  const { eventHash, parentNodeId, parentTitle, userQuestion } = req.body || {};
-  if (!eventHash || !parentNodeId) {
-    return res.status(400).json({ error: "eventHash and parentNodeId are required" });
-  }
+  const { eventHash, parentNodeId, parentTitle, userQuestion, lineage = [] } = req.body || {};
+  if (!eventHash || !parentNodeId) return res.status(400).json({ error: "eventHash and parentNodeId are required" });
   if (isRestricted(userQuestion || "")) {
     return res.status(400).json({ error: "restricted_content", message: "This query category is not supported." });
   }
 
   const promptVersion = "v3";
-  const key = hashText(JSON.stringify({ eventHash, parentNodeId, parentTitle, userQuestion, promptVersion }));
+  const key = hashText(JSON.stringify({ eventHash, parentNodeId, parentTitle, userQuestion, lineage, promptVersion }));
   const cacheFile = path.join(CACHE_DIR, `branch_${key}.json`);
   if (fs.existsSync(cacheFile)) {
     const cached = readJson(cacheFile);
     return res.json({ ...cached, meta: { ...cached.meta, cache: "hit" } });
   }
 
-  try {
-    const parentLabel = parentTitle || parentNodeId;
-    const children = ANTHROPIC_CONFIG.apiKey
-      ? await buildBranchChildrenWithClaude(parentNodeId, parentLabel, userQuestion)
-      : buildBranchChildrenFallback(parentNodeId, parentLabel, userQuestion);
-    const payload = {
-      nodes: children.nodes,
-      edges: children.edges,
-      meta: {
-        cache: "miss",
-        provider: ANTHROPIC_CONFIG.apiKey ? "anthropic" : "fallback",
-        parentNodeId,
-        generatedAt: new Date().toISOString(),
-        tokenEstimate: 420
-      }
-    };
-    writeJson(cacheFile, payload);
-    return res.json(payload);
-  } catch (error) {
-    console.error("[branch]", error);
-    return res.status(500).json({ error: "branch_failed", message: "Failed to generate child worlds." });
-  }
+  const parentLabel = parentTitle || parentNodeId;
+  const generated = await withProviderFallback(
+    () => buildBranchChildrenWithClaude(parentNodeId, parentLabel, userQuestion, lineage),
+    () => buildBranchChildrenFallback(parentNodeId, parentLabel, userQuestion, lineage),
+    "branch"
+  );
+  const payload = {
+    nodes: generated.data.nodes,
+    edges: generated.data.edges,
+    meta: {
+      cache: "miss",
+      provider: generated.provider,
+      fallbackReason: generated.fallbackReason,
+      parentNodeId,
+      generatedAt: new Date().toISOString(),
+      tokenEstimate: 420
+    }
+  };
+  writeJson(cacheFile, payload);
+  return res.json(payload);
 });
 
 app.post("/api/chat", async (req, res) => {
@@ -191,15 +173,12 @@ app.post("/api/chat", async (req, res) => {
   if (isRateLimited(ip, 4_000, 10)) {
     return res.status(429).json({ error: "rate_limited", message: "Too many chat requests. Slow down briefly." });
   }
-
   const { eventHash, nodeId, nodeTitle, roleId, message, history = [] } = req.body || {};
   if (!eventHash || !nodeId || !roleId || !message) {
     return res.status(400).json({ error: "eventHash, nodeId, roleId, message are required" });
   }
   const role = ROLE_PRESETS.find((r) => r.roleId === roleId);
-  if (!role) {
-    return res.status(400).json({ error: "invalid_role" });
-  }
+  if (!role) return res.status(400).json({ error: "invalid_role" });
   if (isRestricted(message)) {
     return res.status(400).json({
       error: "restricted_content",
@@ -215,38 +194,31 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ ...cached, meta: { ...cached.meta, cache: "hit" } });
   }
 
-  try {
-    const reply = ANTHROPIC_CONFIG.apiKey
-      ? await buildRoleReplyWithClaude(role, nodeTitle || nodeId, message, history)
-      : buildRoleReplyFallback(role, nodeTitle || nodeId, message);
-    const payload = {
-      reply,
-      meta: {
-        cache: "miss",
-        provider: ANTHROPIC_CONFIG.apiKey ? "anthropic" : "fallback",
-        roleId,
-        nodeId,
-        generatedAt: new Date().toISOString(),
-        tokenEstimate: 180
-      }
-    };
-    writeJson(cacheFile, payload);
-    return res.json(payload);
-  } catch (error) {
-    console.error("[chat]", error);
-    return res.status(500).json({ error: "chat_failed", message: "Failed to get chatbot reply." });
-  }
+  const generated = await withProviderFallback(
+    () => buildRoleReplyWithClaude(role, nodeTitle || nodeId, message, history),
+    () => buildRoleReplyFallback(role, nodeTitle || nodeId, message),
+    "chat"
+  );
+  const payload = {
+    reply: generated.data,
+    meta: {
+      cache: "miss",
+      provider: generated.provider,
+      fallbackReason: generated.fallbackReason,
+      roleId,
+      nodeId,
+      generatedAt: new Date().toISOString(),
+      tokenEstimate: 180
+    }
+  };
+  writeJson(cacheFile, payload);
+  return res.json(payload);
 });
 
 app.get("/api/demo/:id", (req, res) => {
-  const id = req.params.id;
-  const demoFile = path.join(DEMO_DIR, `${id}.json`);
-  if (!fs.existsSync(demoFile)) {
-    return res.status(404).json({ error: "not_found", message: `No demo scenario '${id}'` });
-  }
-
-  const demo = readJson(demoFile);
-  res.json(demo);
+  const demoFile = path.join(DEMO_DIR, `${req.params.id}.json`);
+  if (!fs.existsSync(demoFile)) return res.status(404).json({ error: "not_found" });
+  return res.json(readJson(demoFile));
 });
 
 app.listen(PORT, () => {
@@ -259,32 +231,27 @@ async function buildInitialGraphWithClaude(eventText, options) {
   const timeframe = options.timeframe || "1 year";
   const stakes = options.stakes || "medium";
   const goal = options.goal || "growth";
-  const rootTitle = shortTitle(eventText);
   const system = [
     "You are EventSim planner.",
-    "Return JSON only with this shape:",
-    '{"worlds":[{"suffix":"A","distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["...","..."],"confidence":0.0}]}',
-    "Exactly 3 worlds with suffix A/B/C in order.",
-    "No markdown."
+    "Return JSON only:",
+    '{"worlds":[{"suffix":"A","distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
+    "Exactly 3 worlds with suffix A/B/C."
   ].join(" ");
-  const user = `Event: ${eventText}\nTimeframe: ${timeframe}\nStakes: ${stakes}\nGoal: ${goal}`;
   const text = await callClaudeText({
     model: getModelForTask("basic"),
     system,
-    messages: [{ role: "user", content: user }],
+    messages: [{ role: "user", content: `Event:${eventText}\nTimeframe:${timeframe}\nStakes:${stakes}\nGoal:${goal}` }],
     maxTokens: 500
   });
   const parsed = safeJsonParse(text);
-  if (!parsed?.worlds || !Array.isArray(parsed.worlds) || parsed.worlds.length !== 3) {
-    return buildInitialGraphFallback(eventText, options);
-  }
+  if (!parsed?.worlds || parsed.worlds.length !== 3) return buildInitialGraphFallback(eventText, options);
 
   const rootId = "root";
   const nodes = [
     {
       id: rootId,
       type: "root",
-      title: rootTitle,
+      title: shortTitle(eventText),
       delta: "Baseline event",
       one_liner: "Starting point before counterfactual changes.",
       tags: [stakes, goal],
@@ -296,7 +263,6 @@ async function buildInitialGraphWithClaude(eventText, options) {
     }
   ];
   const edges = [];
-
   for (const world of parsed.worlds.slice(0, 3)) {
     const suffix = String(world.suffix || "A").toLowerCase();
     const id = `world_${suffix}`;
@@ -305,8 +271,8 @@ async function buildInitialGraphWithClaude(eventText, options) {
       type: "world",
       title: limitWords(world.title || `World ${suffix.toUpperCase()}`, 5),
       delta: limitWords(world.delta || "Counterfactual change", 8),
-      one_liner: limitWords(world.one_liner || "Alternative trajectory for this event.", 16),
-      tags: Array.isArray(world.tags) ? world.tags.slice(0, 3) : [world.distance || "minimal", goal],
+      one_liner: limitWords(world.one_liner || "Alternative trajectory.", 16),
+      tags: normalizeStringArray(world.tags, 3, [world.distance || "minimal", goal]),
       confidence: clampNumber(world.confidence, 0.4, 0.95, 0.7),
       parentId: rootId,
       depth: 1,
@@ -315,19 +281,14 @@ async function buildInitialGraphWithClaude(eventText, options) {
     });
     edges.push({ id: `e_${rootId}_${id}`, source: rootId, target: id, label: "counterfactual" });
   }
-
   return { nodes, edges };
 }
 
 async function buildNodeDetailsWithClaude(nodeId) {
-  const system = [
-    "You are EventSim details generator.",
-    "Return JSON only with fields consequences(3 items), why_it_changes, next_question, risk_flags(max2).",
-    "Keep concise and practical."
-  ].join(" ");
   const text = await callClaudeText({
     model: getModelForTask("basic"),
-    system,
+    system:
+      "Return JSON only with consequences(3), why_it_changes, next_question, risk_flags(max2). Keep concise.",
     messages: [{ role: "user", content: `Node id: ${nodeId}` }],
     maxTokens: 260
   });
@@ -352,24 +313,29 @@ async function buildNodeDetailsWithClaude(nodeId) {
   };
 }
 
-async function buildBranchChildrenWithClaude(parentNodeId, parentTitle, userQuestion) {
+async function buildBranchChildrenWithClaude(parentNodeId, parentTitle, userQuestion, lineage = []) {
   const base = parentNodeId.startsWith("world_") ? parentNodeId : `world_${parentNodeId}`;
-  const system = [
-    "You are EventSim branching engine.",
-    "Return JSON only:",
-    '{"children":[{"index":1,"distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["...","..."],"confidence":0.0}]}',
-    "Exactly 3 children with index 1,2,3."
-  ].join(" ");
-  const user = `Parent: ${parentTitle}\nQuestion: ${userQuestion || ""}`;
+  const lineageText = lineageToText(lineage);
   const text = await callClaudeText({
     model: getModelForTask("branch"),
-    system,
-    messages: [{ role: "user", content: user }],
+    system: [
+      "You are EventSim branching engine.",
+      "Return JSON only:",
+      '{"children":[{"index":1,"distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
+      "Exactly 3 children with index 1/2/3.",
+      "Use both lineage and question."
+    ].join(" "),
+    messages: [
+      {
+        role: "user",
+        content: `Parent:${parentTitle}\nLineage:${lineageText}\nQuestion:${userQuestion || ""}`
+      }
+    ],
     maxTokens: 420
   });
   const parsed = safeJsonParse(text);
-  if (!parsed?.children || !Array.isArray(parsed.children) || parsed.children.length !== 3) {
-    return buildBranchChildrenFallback(parentNodeId, parentTitle, userQuestion);
+  if (!parsed?.children || parsed.children.length !== 3) {
+    return buildBranchChildrenFallback(parentNodeId, parentTitle, userQuestion, lineage);
   }
 
   const nodes = [];
@@ -383,7 +349,7 @@ async function buildBranchChildrenWithClaude(parentNodeId, parentTitle, userQues
       type: "world",
       title: limitWords(child.title || `World ${label}`, 5),
       delta: limitWords(child.delta || "Branch adjustment", 8),
-      one_liner: limitWords(child.one_liner || "Follow-up branch derived from user question.", 16),
+      one_liner: limitWords(child.one_liner || "Derived from lineage and question.", 16),
       tags: normalizeStringArray(child.tags, 3, [child.distance || "minimal", "branched"]),
       confidence: clampNumber(child.confidence, 0.4, 0.95, 0.68),
       parentId: parentNodeId,
@@ -391,37 +357,30 @@ async function buildBranchChildrenWithClaude(parentNodeId, parentTitle, userQues
       data: {
         distance: typeof child.distance === "string" ? child.distance : "minimal",
         branchLabel: label,
-        derivedFromQuestion: userQuestion || ""
+        derivedFromQuestion: userQuestion || "",
+        lineageContext: lineageText
       }
     });
-    edges.push({
-      id: `e_${parentNodeId}_${id}`,
-      source: parentNodeId,
-      target: id,
-      label: "counterfactual"
-    });
+    edges.push({ id: `e_${parentNodeId}_${id}`, source: parentNodeId, target: id, label: "counterfactual" });
   }
   return { nodes, edges };
 }
 
 async function buildRoleReplyWithClaude(role, nodeTitle, message, history) {
-  const system = [
-    `You are ${role.title} and must respond in this style: ${role.style}.`,
-    "Return JSON only:",
-    '{"answer":"...","bullets":["...","...","..."],"nextQuestion":"..."}',
-    "bullets must be exactly 3."
-  ].join(" ");
   const historyLines = Array.isArray(history)
     ? history
         .slice(-6)
         .map((h) => `${h.sender || "user"}: ${h.text || ""}`)
         .join("\n")
     : "";
-  const user = `Node: ${nodeTitle}\nHistory:\n${historyLines}\nUser: ${message}`;
   const text = await callClaudeText({
     model: getModelForTask("chatbot"),
-    system,
-    messages: [{ role: "user", content: user }],
+    system: [
+      `You are ${role.title}. Style: ${role.style}.`,
+      "Return JSON only:",
+      '{"answer":"...","bullets":["...","...","..."],"nextQuestion":"..."}'
+    ].join(" "),
+    messages: [{ role: "user", content: `Node:${nodeTitle}\nHistory:\n${historyLines}\nUser:${message}` }],
     maxTokens: 260
   });
   const parsed = safeJsonParse(text);
@@ -429,14 +388,11 @@ async function buildRoleReplyWithClaude(role, nodeTitle, message, history) {
   return {
     roleId: role.roleId,
     roleTitle: role.title,
-    answer:
-      typeof parsed.answer === "string"
-        ? parsed.answer
-        : `From ${role.title} on ${nodeTitle}: focus on pragmatic tradeoffs.`,
+    answer: typeof parsed.answer === "string" ? parsed.answer : `From ${role.title}: focus on tradeoffs.`,
     bullets: normalizeStringArray(parsed.bullets, 3, [
-      "List key assumptions",
-      "Choose one low-risk experiment",
-      "Set a near-term review checkpoint"
+      "List assumptions",
+      "Choose one low-risk test",
+      "Set review checkpoint"
     ]),
     nextQuestion:
       typeof parsed.nextQuestion === "string"
@@ -453,20 +409,13 @@ async function callClaudeText({ model, system, messages, maxTokens }) {
       "anthropic-version": ANTHROPIC_CONFIG.version,
       "content-type": "application/json"
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      temperature: 0.2,
-      system,
-      messages
-    })
+    body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0.2, system, messages })
   });
   if (!response.ok) {
     throw new Error(`Anthropic error ${response.status}: ${await response.text()}`);
   }
   const data = await response.json();
-  const text = data?.content?.find((item) => item.type === "text")?.text || "";
-  return text.trim();
+  return (data?.content?.find((item) => item.type === "text")?.text || "").trim();
 }
 
 function buildInitialGraphFallback(eventText, options) {
@@ -474,7 +423,6 @@ function buildInitialGraphFallback(eventText, options) {
   const stakes = options.stakes || "medium";
   const goal = options.goal || "growth";
   const rootId = "root";
-
   const nodes = [
     {
       id: rootId,
@@ -490,14 +438,12 @@ function buildInitialGraphFallback(eventText, options) {
       data: { timeframe, stakes, goal, eventText }
     }
   ];
-
+  const edges = [];
   const seedWorlds = [
     ["a", "minimal", "Small adjustment, most assumptions remain intact.", "Change one controllable factor", 0.74],
     ["b", "moderate", "A meaningful pivot with moderate disruption.", "Change decision and one constraint", 0.68],
     ["c", "radical", "High-variance move with a different strategic frame.", "Shift environment and goals", 0.59]
   ];
-
-  const edges = [];
   for (const [suffix, distance, oneLiner, delta, confidence] of seedWorlds) {
     const id = `world_${suffix}`;
     nodes.push({
@@ -515,22 +461,20 @@ function buildInitialGraphFallback(eventText, options) {
     });
     edges.push({ id: `e_${rootId}_${id}`, source: rootId, target: id, label: "counterfactual" });
   }
-
   return { nodes, edges };
 }
 
-function buildBranchChildrenFallback(parentNodeId, parentTitle, userQuestion) {
+function buildBranchChildrenFallback(parentNodeId, parentTitle, userQuestion, lineage = []) {
   const children = [];
   const edges = [];
   const base = parentNodeId.startsWith("world_") ? parentNodeId : `world_${parentNodeId}`;
   const questionHint = shortTitle(userQuestion || "user follow-up");
-
+  const lineageHint = shortTitle(lineageToText(lineage));
   const variants = [
     { s: "1", distance: "minimal", delta: "Refine one variable", confidence: 0.72 },
     { s: "2", distance: "moderate", delta: "Adjust decision and constraints", confidence: 0.66 },
     { s: "3", distance: "radical", delta: "Reframe goals and environment", confidence: 0.58 }
   ];
-
   for (const variant of variants) {
     const id = `${base}${variant.s}`;
     const label = branchLabelFromNodeId(id);
@@ -539,21 +483,20 @@ function buildBranchChildrenFallback(parentNodeId, parentTitle, userQuestion) {
       type: "world",
       title: `World ${label}`,
       delta: variant.delta,
-      one_liner: `${parentTitle} -> ${variant.distance} follow-up via ${questionHint}.`,
+      one_liner: `${parentTitle} -> ${variant.distance} via ${questionHint}; context ${lineageHint}.`,
       tags: [variant.distance, "branched"],
       confidence: variant.confidence,
       parentId: parentNodeId,
       collapsed: false,
-      data: { distance: variant.distance, branchLabel: label, derivedFromQuestion: userQuestion || "" }
+      data: {
+        distance: variant.distance,
+        branchLabel: label,
+        derivedFromQuestion: userQuestion || "",
+        lineageContext: lineageToText(lineage)
+      }
     });
-    edges.push({
-      id: `e_${parentNodeId}_${id}`,
-      source: parentNodeId,
-      target: id,
-      label: "counterfactual"
-    });
+    edges.push({ id: `e_${parentNodeId}_${id}`, source: parentNodeId, target: id, label: "counterfactual" });
   }
-
   return { nodes: children, edges };
 }
 
@@ -571,7 +514,6 @@ function buildNodeDetailsFallback(nodeId) {
       risk_flags: ["uncertainty"]
     };
   }
-
   return {
     nodeId,
     consequences: [
@@ -593,48 +535,38 @@ function buildRoleReplyFallback(role, nodeTitle, message) {
       roleId: role.roleId,
       roleTitle: role.title,
       answer: `From You-Now on ${nodeTitle}: prioritize immediate feasibility. ${intent}`,
-      bullets: [
-        "Identify one immediate blocker",
-        "Choose the lowest-friction next action",
-        "Set a 48-hour checkpoint"
-      ],
+      bullets: ["Identify one immediate blocker", "Choose lowest-friction next action", "Set 48-hour checkpoint"],
       nextQuestion: "What concrete step can you finish by tomorrow?"
     };
   }
-
   if (role.roleId === "you_5y") {
     return {
       roleId: role.roleId,
       roleTitle: role.title,
       answer: `From You-in-5-Years on ${nodeTitle}: optimize for compounding, not comfort. ${intent}`,
-      bullets: [
-        "Protect long-term option value",
-        "Prefer skill-building over short-term optics",
-        "Evaluate regret if repeated for 12 months"
-      ],
-      nextQuestion: "Which option compounds your learning and network the fastest?"
+      bullets: ["Protect long-term option value", "Prefer skill-building over optics", "Evaluate 12-month regret"],
+      nextQuestion: "Which option compounds learning and network fastest?"
     };
   }
-
   return {
     roleId: role.roleId,
     roleTitle: role.title,
     answer: `Neutral Advisor for ${nodeTitle}: balance upside, downside, and reversibility. ${intent}`,
-    bullets: [
-      "List assumptions explicitly",
-      "Compare downside asymmetry",
-      "Pick a reversible experiment first"
-    ],
-    nextQuestion: "Which option remains robust across multiple future branches?"
+    bullets: ["List assumptions explicitly", "Compare downside asymmetry", "Pick reversible experiment first"],
+    nextQuestion: "Which option remains robust across multiple branches?"
   };
 }
 
-function normalizeStringArray(value, maxLen, fallback) {
-  if (!Array.isArray(value) || value.length === 0) return fallback;
-  return value
-    .map((item) => String(item || "").trim())
-    .filter(Boolean)
-    .slice(0, maxLen);
+async function withProviderFallback(tryPrimary, fallbackFn, label) {
+  if (!ANTHROPIC_CONFIG.apiKey) {
+    return { data: fallbackFn(), provider: "fallback", fallbackReason: "missing_api_key" };
+  }
+  try {
+    return { data: await tryPrimary(), provider: "anthropic", fallbackReason: null };
+  } catch (error) {
+    console.error(`[${label}] primary provider failed, fallback enabled`, error);
+    return { data: fallbackFn(), provider: "fallback", fallbackReason: "provider_error" };
+  }
 }
 
 function safeJsonParse(text) {
@@ -653,21 +585,30 @@ function safeJsonParse(text) {
   }
 }
 
+function normalizeStringArray(value, maxLen, fallback) {
+  if (!Array.isArray(value) || value.length === 0) return fallback;
+  return value.map((item) => String(item || "").trim()).filter(Boolean).slice(0, maxLen);
+}
+
 function limitWords(text, maxWords) {
-  const words = String(text || "")
+  return String(text || "")
     .replace(/\s+/g, " ")
     .trim()
     .split(" ")
     .filter(Boolean)
-    .slice(0, maxWords);
-  return words.join(" ");
+    .slice(0, maxWords)
+    .join(" ");
 }
 
 function summarizeIntent(text) {
   const cleaned = String(text || "").replace(/\s+/g, " ").trim();
   if (!cleaned) return "";
-  const words = cleaned.split(" ").slice(0, 20).join(" ");
-  return `Your question focus: ${words}.`;
+  return `Your question focus: ${cleaned.split(" ").slice(0, 20).join(" ")}.`;
+}
+
+function lineageToText(lineage) {
+  if (!Array.isArray(lineage) || lineage.length === 0) return "none";
+  return lineage.map((item) => `${item.id || "node"}:${shortTitle(item.title || "")}`).join(" -> ");
 }
 
 function branchLabelFromNodeId(nodeId) {
@@ -675,12 +616,12 @@ function branchLabelFromNodeId(nodeId) {
 }
 
 function shortTitle(input) {
-  const words = String(input || "")
+  return String(input || "")
     .replace(/\s+/g, " ")
     .trim()
     .split(" ")
-    .slice(0, 8);
-  return words.join(" ");
+    .slice(0, 8)
+    .join(" ");
 }
 
 function ensureDir(dir) {

@@ -138,11 +138,13 @@ export default function SimPage() {
     if (!branchTargetNode || branchTargetNode.type !== "world" || !branchInput.trim() || !eventHash) return;
     setBranchLoading(true);
     try {
+      const lineage = buildLineage(graph.nodes, branchTargetNode.id);
       const result = await fetchBranch({
         eventHash,
         parentNodeId: branchTargetNode.id,
         parentTitle: branchTargetNode.title,
-        userQuestion: branchInput.trim()
+        userQuestion: branchInput.trim(),
+        lineage
       });
       setGraph((prev) => mergeGraph(prev, result, branchTargetNode.id));
       setCallsUsed((x) => x + 1);
@@ -249,6 +251,18 @@ export default function SimPage() {
       <ToastStack items={toasts} />
     </main>
   );
+}
+
+function buildLineage(nodes, nodeId) {
+  const map = new Map(nodes.map((node) => [node.id, node]));
+  const chain = [];
+  let current = map.get(nodeId);
+  while (current) {
+    chain.push({ id: current.id, title: current.title, one_liner: current.one_liner });
+    if (!current.parentId) break;
+    current = map.get(current.parentId);
+  }
+  return chain.reverse();
 }
 
 function mergeGraph(current, branchPayload, parentNodeId) {
