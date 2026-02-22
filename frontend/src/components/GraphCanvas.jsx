@@ -2,7 +2,7 @@ import ReactFlow, { Background, Controls, MiniMap } from "reactflow";
 import "reactflow/dist/style.css";
 import WorldNode from "./WorldNode.jsx";
 
-export default function GraphCanvas({ nodes, edges, onNodeClick, onNodeDoubleClick, presentationMode = false }) {
+export default function GraphCanvas({ nodes, edges, onNodeClick, onNodeDoubleClick }) {
   const nodeTypes = { worldNode: WorldNode };
   return (
     <div className="card graph-canvas">
@@ -14,8 +14,8 @@ export default function GraphCanvas({ nodes, edges, onNodeClick, onNodeDoubleCli
         fitView
         nodeTypes={nodeTypes}
       >
-        {!presentationMode && <MiniMap pannable zoomable />}
-        {!presentationMode && <Controls />}
+        <MiniMap pannable zoomable />
+        <Controls />
         <Background gap={24} />
       </ReactFlow>
     </div>

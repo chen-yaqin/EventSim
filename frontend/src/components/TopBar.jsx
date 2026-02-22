@@ -5,8 +5,6 @@ export default function TopBar({
   onToggleDemo,
   onExport,
   callsUsed,
-  presentationMode,
-  onTogglePresentation,
   onOpenCompare,
   compareReady
 }) {
@@ -15,33 +13,22 @@ export default function TopBar({
       <div className="brand">
         <Link to="/">EventSim</Link>
       </div>
-      {!presentationMode && (
-        <nav className="topnav">
-          <Link to="/sim">Simulator</Link>
-          <Link to="/demo">Demo</Link>
-        </nav>
-      )}
+      <nav className="topnav">
+        <Link to="/sim">Simulator</Link>
+        <Link to="/demo">Demo</Link>
+      </nav>
       <div className="top-actions">
-        {!presentationMode && (
-          <label className="toggle">
-            <input type="checkbox" checked={demoMode} onChange={(e) => onToggleDemo(e.target.checked)} />
-            <span>Demo Mode</span>
-          </label>
-        )}
+        <label className="toggle">
+          <input type="checkbox" checked={demoMode} onChange={(e) => onToggleDemo(e.target.checked)} />
+          <span>Demo Mode</span>
+        </label>
         <button className="btn btn-soft" onClick={onOpenCompare} disabled={!compareReady}>
           Branch Compare
         </button>
-        <button className="btn btn-soft" onClick={onTogglePresentation}>
-          {presentationMode ? "Exit Presentation" : "Presentation Mode"}
+        <button className="btn btn-soft" onClick={onExport}>
+          Export JSON
         </button>
-        {!presentationMode && (
-          <>
-            <button className="btn btn-soft" onClick={onExport}>
-              Export JSON
-            </button>
-            <span className="badge">Calls: {callsUsed}</span>
-          </>
-        )}
+        <span className="badge">Calls: {callsUsed}</span>
       </div>
     </header>
   );

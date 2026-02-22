@@ -75,7 +75,7 @@ export default function CompareModal({ open, left, right, leftDetails, rightDeta
             </ul>
           </div>
         </div>
-        <div className="row">
+        <div className="row compare-actions">
           <button className="btn" onClick={() => onExport?.(conclusion)}>
             Export Conclusion
           </button>

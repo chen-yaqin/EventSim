@@ -1,7 +1,8 @@
 const ROLES = [
   { id: "you_now", label: "You-Now" },
   { id: "you_5y", label: "You-in-5-Years" },
-  { id: "neutral_advisor", label: "Neutral Advisor" }
+  { id: "neutral_advisor", label: "Neutral Advisor" },
+  { id: "custom", label: "Custom Role" }
 ];
 
 export default function ChatWidget({
@@ -10,6 +11,10 @@ export default function ChatWidget({
   selectedNode,
   roleId,
   onRoleChange,
+  customRoleTitle,
+  customRoleStyle,
+  onCustomRoleTitleChange,
+  onCustomRoleStyleChange,
   messages,
   input,
   onInputChange,
@@ -35,13 +40,31 @@ export default function ChatWidget({
               ))}
             </select>
           </div>
-          <div className="chat-box">
+          {roleId === "custom" && (
+            <div className="chat-role-row">
+              <label>custom role name</label>
+              <input
+                className="chat-input-inline"
+                value={customRoleTitle}
+                onChange={(e) => onCustomRoleTitleChange(e.target.value)}
+                placeholder="e.g. Product Manager"
+              />
+              <label>custom role style</label>
+              <input
+                className="chat-input-inline"
+                value={customRoleStyle}
+                onChange={(e) => onCustomRoleStyleChange(e.target.value)}
+                placeholder="e.g. user outcomes, scope-risk tradeoffs"
+              />
+            </div>
+          )}
+          <div className={`chat-box ${messages?.length ? "" : "chat-box-empty"}`}>
             {(messages || []).map((msg) => (
               <div key={msg.id} className={`chat-line chat-${msg.sender}`}>
                 <strong>{msg.sender === "user" ? "You" : msg.roleTitle || "Assistant"}:</strong> {msg.text}
               </div>
             ))}
-            {!messages?.length && <p className="muted">Select a node and start asking questions.</p>}
+            {!messages?.length && <p className="muted chat-empty-hint">Select a node and start asking questions.</p>}
           </div>
 
           <textarea
@@ -49,7 +72,16 @@ export default function ChatWidget({
             onChange={(e) => onInputChange(e.target.value)}
             placeholder="Ask from selected role perspective..."
           />
-          <button className="btn btn-soft" onClick={onSend} disabled={loading || !input.trim() || !selectedNode}>
+          <button
+            className="btn btn-soft"
+            onClick={onSend}
+            disabled={
+              loading ||
+              !input.trim() ||
+              !selectedNode ||
+              (roleId === "custom" && !customRoleTitle.trim())
+            }
+          >
             {loading ? "Sending..." : "Send"}
           </button>
         </section>

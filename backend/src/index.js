@@ -281,11 +281,23 @@ app.post("/api/chat", async (req, res) => {
   if (isRateLimited(ip, 4_000, 10)) {
     return res.status(429).json({ error: "rate_limited", message: "Too many chat requests. Slow down briefly." });
   }
-  const { eventHash, nodeId, nodeTitle, roleId, message, history = [], useCache = true } = req.body || {};
+  const { eventHash, nodeId, nodeTitle, roleId, customRoleTitle, customRoleStyle, message, history = [], useCache = true } = req.body || {};
   if (!eventHash || !nodeId || !roleId || !message) {
     return res.status(400).json({ error: "eventHash, nodeId, roleId, message are required" });
   }
-  const role = ROLE_PRESETS.find((r) => r.roleId === roleId);
+  let role = ROLE_PRESETS.find((r) => r.roleId === roleId);
+  if (!role && roleId === "custom") {
+    const title = limitWords(String(customRoleTitle || "").trim(), 4);
+    const style = limitWords(String(customRoleStyle || "").trim(), 12);
+    if (!title) {
+      return res.status(400).json({ error: "customRoleTitle is required when roleId=custom" });
+    }
+    role = {
+      roleId: "custom",
+      title,
+      style: style || "domain-specific perspective with explicit tradeoffs"
+    };
+  }
   if (!role) return res.status(400).json({ error: "invalid_role" });
   if (isRestricted(message)) {
     return res.status(400).json({
@@ -294,8 +306,8 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
-  const promptVersion = "v7";
-  const key = hashText(JSON.stringify({ eventHash, nodeId, roleId, message, history, promptVersion }));
+  const promptVersion = "v8";
+  const key = hashText(JSON.stringify({ eventHash, nodeId, roleId, roleTitle: role.title, roleStyle: role.style, message, history, promptVersion }));
   const cacheFile = path.join(CACHE_DIR, `chat_${key}.json`);
   if (useCache && fs.existsSync(cacheFile)) {
     const cached = readJson(cacheFile);

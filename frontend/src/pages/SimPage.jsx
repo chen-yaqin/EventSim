@@ -28,6 +28,8 @@ export default function SimPage() {
   const [loadingExpand, setLoadingExpand] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [roleId, setRoleId] = useState("you_now");
+  const [customRoleTitle, setCustomRoleTitle] = useState("");
+  const [customRoleStyle, setCustomRoleStyle] = useState("");
   const [chatByKey, setChatByKey] = useState({});
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -40,7 +42,6 @@ export default function SimPage() {
   const [branchTargetId, setBranchTargetId] = useState(null);
   const [compareIds, setCompareIds] = useState([]);
   const [compareOpen, setCompareOpen] = useState(false);
-  const [presentationMode, setPresentationMode] = useState(false);
 
   const selectedNode = useMemo(() => graph.nodes.find((n) => n.id === selectedId) || null, [graph, selectedId]);
   const branchTargetNode = useMemo(
@@ -149,6 +150,10 @@ export default function SimPage() {
 
   async function handleSendChat() {
     if (!selectedNode || !chatInput.trim() || !eventHash) return;
+    if (roleId === "custom" && !customRoleTitle.trim()) {
+      toast("Custom role name is required", "warn");
+      return;
+    }
     const userText = chatInput.trim();
     const roleChatKey = `${selectedNode.id}:${roleId}`;
     const previous = chatByKey[roleChatKey] || [];
@@ -163,6 +168,8 @@ export default function SimPage() {
         nodeId: selectedNode.id,
         nodeTitle: selectedNode.title,
         roleId,
+        customRoleTitle: roleId === "custom" ? customRoleTitle.trim() : "",
+        customRoleStyle: roleId === "custom" ? customRoleStyle.trim() : "",
         message: userText,
         history: previous.map((item) => ({ sender: item.sender, text: item.text })),
         useCache: form.useCache
@@ -415,14 +422,12 @@ export default function SimPage() {
   }
 
   return (
-    <main className={`sim-page ${presentationMode ? "presentation-mode" : ""}`}>
+    <main className="sim-page">
       <TopBar
         demoMode={demoMode}
         onToggleDemo={setDemoMode}
         onExport={handleExport}
         callsUsed={callsUsed}
-        presentationMode={presentationMode}
-        onTogglePresentation={() => setPresentationMode((v) => !v)}
         onOpenCompare={handleOpenCompare}
         compareReady={compareNodes.length === 2}
       />
@@ -435,38 +440,37 @@ export default function SimPage() {
             edges={flow.edges}
             onNodeClick={handleNodeClick}
             onNodeDoubleClick={handleNodeDoubleClick}
-            presentationMode={presentationMode}
           />
         </div>
 
-        {!presentationMode && (
-          <SidePanel
-            selectedNode={selectedNode}
-            details={selectedNode ? expanded[selectedNode.id] : null}
-            loading={loadingExpand}
-            onToggleCollapse={() => handleToggleCollapse()}
-            onCopySummary={handleCopySummary}
-            onOpenLineageWindow={handleOpenLineageWindow}
-            onToggleCompare={() => handleToggleCompareNode()}
-            compareSelected={Boolean(selectedNode && compareIds.includes(selectedNode.id))}
-          />
-        )}
+        <SidePanel
+          selectedNode={selectedNode}
+          details={selectedNode ? expanded[selectedNode.id] : null}
+          loading={loadingExpand}
+          onToggleCollapse={() => handleToggleCollapse()}
+          onCopySummary={handleCopySummary}
+          onOpenLineageWindow={handleOpenLineageWindow}
+          onToggleCompare={() => handleToggleCompareNode()}
+          compareSelected={Boolean(selectedNode && compareIds.includes(selectedNode.id))}
+        />
       </div>
 
-      {!presentationMode && (
-        <ChatWidget
-          open={chatOpen}
-          onToggle={() => setChatOpen((v) => !v)}
-          selectedNode={selectedNode}
-          roleId={roleId}
-          onRoleChange={setRoleId}
-          messages={chatMessages}
-          input={chatInput}
-          onInputChange={setChatInput}
-          onSend={handleSendChat}
-          loading={chatLoading}
-        />
-      )}
+      <ChatWidget
+        open={chatOpen}
+        onToggle={() => setChatOpen((v) => !v)}
+        selectedNode={selectedNode}
+        roleId={roleId}
+        onRoleChange={setRoleId}
+        customRoleTitle={customRoleTitle}
+        customRoleStyle={customRoleStyle}
+        onCustomRoleTitleChange={setCustomRoleTitle}
+        onCustomRoleStyleChange={setCustomRoleStyle}
+        messages={chatMessages}
+        input={chatInput}
+        onInputChange={setChatInput}
+        onSend={handleSendChat}
+        loading={chatLoading}
+      />
       <BranchModal
         open={branchModalOpen}
         node={branchTargetNode}
