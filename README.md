@@ -83,27 +83,7 @@ npm run dev
 
 Default: `http://localhost:8787`
 
-### Ship Without GitHub Source Flow
-
-If your users should open the full simulator UI directly, package built frontend files and serve them from backend:
-
-```bash
-cd backend
-npm install
-npm run start:bundle
-```
-
-Then users open:
-
-- `http://localhost:8787/` (full UI)
-- `http://localhost:8787/sim`
-
-Notes:
-
-- Full UI is the React app from `frontend/dist`, served by backend when dist exists.
-- Users can click `Runtime Config` in UI and fill API keys + provider/model routing directly in page.
-
-### 3) Run Frontend
+### 3) Run Frontend (Dev)
 
 ```bash
 cd frontend
@@ -126,6 +106,40 @@ npm run dev
 - Simulator: `/sim`
 - Demo list: `/demo`
 
+## Deployment & Sharing
+
+### Option A: Single-command bundled run
+
+Use one command to build frontend and run backend:
+
+```bash
+cd backend
+npm install
+npm run start:bundle
+```
+
+Service URL:
+
+- `http://localhost:8787/`
+- `http://localhost:8787/sim`
+
+### Option B: LAN sharing (same Wi-Fi)
+
+1. Find host LAN IP (example: `10.140.214.226`)
+2. Ensure backend is running on `8787`
+3. Allow inbound `TCP 8787` in firewall
+4. Share `http://<LAN_IP>:8787/`
+
+### Option C: Temporary public link
+
+Expose local port `8787` with a tunnel tool:
+
+```powershell
+npx localtunnel --port 8787
+```
+
+Share the generated `https://*.loca.lt` link.
+Stop tunnel with `Ctrl + C`.
 ## User Instructions
 
 ### Simulator Basics
