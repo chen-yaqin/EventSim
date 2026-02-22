@@ -1,8 +1,4 @@
-# EventSim
-
 ![EventSim Title](image/title.png)
-
-EventSim is an interactive decision-simulation tool. You enter one event, it generates multiple future branches, and helps you compare tradeoffs, risks, and likely outcomes.
 
 ## Quick Start
 
