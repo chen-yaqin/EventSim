@@ -173,3 +173,47 @@ EventSim/
 - File cache for repeatable runs
 - Restricted-content guardrails (e.g. self-harm, medical/legal advice categories)
 - Fallback generation path for provider failures
+
+## Hackathon Compliance
+
+This section records how our team satisfies the required submission conditions.
+
+### Team and Track
+
+- Track: General Track
+- Team members:
+  - Yaqin Chen
+  - Runlin Song
+  - Xiayu Zhao
+- Team size is 3, which is within the General Track requirement (2-4 people).
+
+### Dataset and Data Science Use
+
+- Dataset used: FEMA disaster declarations from Kaggle.
+- Data preparation and statistical processing are implemented in `process_data.py`.
+- The pipeline uses:
+  - feature selection from FEMA records
+  - aggregation by state and incident type
+  - historical probability estimation (IA/PA rates)
+  - sparse-category filtering for statistical stability
+  - export to `backend/data/fema_historical_insights.json` for RAG grounding
+- This satisfies the requirement to use at least one dataset with appropriate data science methods.
+
+### Original Work and Build Ownership
+
+- Core idea, implementation, and integration are produced by team members during the hackathon.
+- External mentor input is limited to guidance and feedback, not direct implementation handoff.
+
+### AI Tool Citation
+
+- AI tools used in this project:
+  - Codex
+  - Gemini
+  - GPT5.2
+- AI tools were used for coding assistance, prompt drafting, and documentation support.
+- Final engineering decisions, validation, and integration were completed by the team.
+
+### Presentation and Judging Acknowledgement
+
+- The team will present the project for judging eligibility.
+- The team acknowledges and accepts final judging outcomes.
