@@ -1,4 +1,4 @@
-export function toReactFlow(graph, onToggleCollapse, onOpenBranch) {
+export function toReactFlow(graph, onToggleCollapse, onOpenBranch, onToggleCompare, compareIds = []) {
   const { visibleNodes, visibleEdges, childCountById, depthById } = buildVisibleTree(graph);
   const byDepth = new Map();
   for (const node of visibleNodes) {
@@ -30,21 +30,28 @@ export function toReactFlow(graph, onToggleCollapse, onOpenBranch) {
     row.forEach((node, index) => {
       const nodeWidth = estWidths[index] || 320;
       const x = xCursor;
+      const titleShort = shortNodeTitle(node.title, 4);
+      const orderIndex = depth * 8 + index;
       flowNodes.push({
         id: node.id,
         type: "worldNode",
         position: { x, y },
+        className: "rf-node-cascade",
         data: {
           id: node.id,
           title: node.title,
+          titleShort,
           oneLiner: node.one_liner,
           tags: node.tags || [],
           confidence: node.confidence,
           collapsed: Boolean(node.collapsed),
           hasChildren: (childCountById.get(node.id) || 0) > 0,
           nodeType: node.type,
+          isCompareSelected: compareIds.includes(node.id),
+          animationDelay: Math.min(520, orderIndex * 60),
           onToggleCollapse,
-          onOpenBranch
+          onOpenBranch,
+          onToggleCompare
         },
         style: styleForType(node.type)
       });
@@ -53,13 +60,19 @@ export function toReactFlow(graph, onToggleCollapse, onOpenBranch) {
     yCursor += maxHeight + 120;
   }
 
-  const flowEdges = visibleEdges.map((edge) => ({
+  const flowEdges = visibleEdges.map((edge, idx) => ({
     id: edge.id,
     source: edge.source,
     target: edge.target,
     label: edge.label,
     animated: edge.label === "counterfactual",
-    style: { strokeWidth: 1.6 },
+    className: "edge-cascade",
+    style: {
+      strokeWidth: 1.6,
+      opacity: 0,
+      animation: "edgeFadeIn 420ms ease-out forwards",
+      animationDelay: `${Math.min(640, idx * 45)}ms`
+    },
     labelStyle: { fontSize: 11 }
   }));
 
@@ -141,4 +154,13 @@ function estimateNodeWidth(node) {
   if (title.length > 55) return 390;
   if (title.length > 35) return 360;
   return 340;
+}
+
+function shortNodeTitle(title, maxWords = 4) {
+  const words = String(title || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return "Node";
+  return words.slice(0, maxWords).join(" ");
 }

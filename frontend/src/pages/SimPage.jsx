@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import BranchModal from "../components/BranchModal.jsx";
 import ChatWidget from "../components/ChatWidget.jsx";
+import CompareModal from "../components/CompareModal.jsx";
 import GraphCanvas from "../components/GraphCanvas.jsx";
 import ScenarioForm from "../components/ScenarioForm.jsx";
 import SidePanel from "../components/SidePanel.jsx";
@@ -37,6 +38,9 @@ export default function SimPage() {
   const [chatOpen, setChatOpen] = useState(false);
   const [branchModalOpen, setBranchModalOpen] = useState(false);
   const [branchTargetId, setBranchTargetId] = useState(null);
+  const [compareIds, setCompareIds] = useState([]);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [presentationMode, setPresentationMode] = useState(false);
 
   const selectedNode = useMemo(() => graph.nodes.find((n) => n.id === selectedId) || null, [graph, selectedId]);
   const branchTargetNode = useMemo(
@@ -44,11 +48,14 @@ export default function SimPage() {
     [graph, branchTargetId]
   );
   const flow = useMemo(
-    () => toReactFlow(graph, handleToggleCollapse, openBranchModalForNode),
-    [graph]
+    () => toReactFlow(graph, handleToggleCollapse, openBranchModalForNode, handleToggleCompareNode, compareIds),
+    [graph, compareIds]
   );
   const chatKey = selectedNode ? `${selectedNode.id}:${roleId}` : "";
   const chatMessages = chatByKey[chatKey] || [];
+  const compareNodes = useMemo(() => compareIds.map((id) => graph.nodes.find((n) => n.id === id)).filter(Boolean), [compareIds, graph.nodes]);
+  const compareLeft = compareNodes[0] || null;
+  const compareRight = compareNodes[1] || null;
 
   async function handleGenerate() {
     setLoadingPlan(true);
@@ -66,6 +73,8 @@ export default function SimPage() {
         setBranchChildCountByNode({});
         setBranchModalOpen(false);
         setBranchTargetId(null);
+        setCompareIds([]);
+        setCompareOpen(false);
         setCallsUsed((x) => x + 1);
         toast("Demo graph loaded (no API key required)", "success");
         return;
@@ -91,6 +100,8 @@ export default function SimPage() {
       setBranchChildCountByNode({});
       setBranchModalOpen(false);
       setBranchTargetId(null);
+      setCompareIds([]);
+      setCompareOpen(false);
       setCallsUsed((x) => x + 1);
       toast(result.meta.cache === "hit" ? "Loaded plan from cache" : "Graph generated", "success");
     } catch (error) {
@@ -238,6 +249,76 @@ export default function SimPage() {
     setBranchChildCount(branchChildCountByNode[nodeId] ?? 3);
   }
 
+  function handleToggleCompareNode(nodeId = selectedNode?.id) {
+    if (!nodeId) return;
+    setCompareIds((prev) => {
+      if (prev.includes(nodeId)) return prev.filter((id) => id !== nodeId);
+      if (prev.length >= 2) return [prev[1], nodeId];
+      return [...prev, nodeId];
+    });
+  }
+
+  async function handleOpenCompare() {
+    if (compareNodes.length !== 2) {
+      toast("Select 2 nodes first for compare", "warn");
+      return;
+    }
+    const selectedIds = compareNodes.map((node) => node.id);
+    const missing = selectedIds.filter((id) => !expanded[id]);
+    if (missing.length && eventHash) {
+      try {
+        setLoadingExpand(true);
+        const responses = await Promise.all(
+          missing.map(async (id) => {
+            const currentNode = graph.nodes.find((n) => n.id === id);
+            if (!currentNode) return null;
+            const result = await fetchExpand({
+              eventHash,
+              nodeId: id,
+              nodeTitle: currentNode.title || "",
+              nodeType: currentNode.type || "",
+              nodeOneLiner: currentNode.one_liner || "",
+              nodeDelta: currentNode.delta || "",
+              nodeTags: Array.isArray(currentNode.tags) ? currentNode.tags : [],
+              parentId: currentNode.parentId || null,
+              lineage: buildLineage(graph.nodes, id),
+              useCache: form.useCache
+            });
+            return { id, details: result.details || null };
+          })
+        );
+        const loaded = {};
+        for (const item of responses) {
+          if (!item) continue;
+          loaded[item.id] = item.details;
+        }
+        if (Object.keys(loaded).length) {
+          setExpanded((prev) => ({ ...prev, ...loaded }));
+          setCallsUsed((x) => x + Object.keys(loaded).length);
+        }
+      } catch (error) {
+        toast(`Compare details partial: ${error.message}`, "warn");
+      } finally {
+        setLoadingExpand(false);
+      }
+    }
+    setCompareOpen(true);
+  }
+
+  function handleExportCompareConclusion(text) {
+    const body = String(text || "").trim();
+    if (!body) return;
+    const blob = new Blob([body], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `branch-compare-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    navigator.clipboard.writeText(body).catch(() => {});
+    toast("Conclusion exported (and copied)", "success");
+  }
+
   function handleExport() {
     if (!graph.nodes.length) return toast("No graph to export", "warn");
     const data = JSON.stringify({ graph, eventHash, form, expanded, chatByKey }, null, 2);
@@ -332,37 +413,52 @@ export default function SimPage() {
   }
 
   return (
-    <main className="sim-page">
-      <TopBar demoMode={demoMode} onToggleDemo={setDemoMode} onExport={handleExport} callsUsed={callsUsed} />
+    <main className={`sim-page ${presentationMode ? "presentation-mode" : ""}`}>
+      <TopBar
+        demoMode={demoMode}
+        onToggleDemo={setDemoMode}
+        onExport={handleExport}
+        callsUsed={callsUsed}
+        presentationMode={presentationMode}
+        onTogglePresentation={() => setPresentationMode((v) => !v)}
+        onOpenCompare={handleOpenCompare}
+        compareReady={compareNodes.length === 2}
+      />
 
       <div className="workspace">
         <div className="left">
           <ScenarioForm form={form} onChange={setForm} onGenerate={handleGenerate} loading={loadingPlan} />
-          <GraphCanvas nodes={flow.nodes} edges={flow.edges} onNodeClick={handleNodeClick} />
+          <GraphCanvas nodes={flow.nodes} edges={flow.edges} onNodeClick={handleNodeClick} presentationMode={presentationMode} />
         </div>
 
-        <SidePanel
-          selectedNode={selectedNode}
-          details={selectedNode ? expanded[selectedNode.id] : null}
-          loading={loadingExpand}
-          onToggleCollapse={() => handleToggleCollapse()}
-          onCopySummary={handleCopySummary}
-          onOpenLineageWindow={handleOpenLineageWindow}
-        />
+        {!presentationMode && (
+          <SidePanel
+            selectedNode={selectedNode}
+            details={selectedNode ? expanded[selectedNode.id] : null}
+            loading={loadingExpand}
+            onToggleCollapse={() => handleToggleCollapse()}
+            onCopySummary={handleCopySummary}
+            onOpenLineageWindow={handleOpenLineageWindow}
+            onToggleCompare={() => handleToggleCompareNode()}
+            compareSelected={Boolean(selectedNode && compareIds.includes(selectedNode.id))}
+          />
+        )}
       </div>
 
-      <ChatWidget
-        open={chatOpen}
-        onToggle={() => setChatOpen((v) => !v)}
-        selectedNode={selectedNode}
-        roleId={roleId}
-        onRoleChange={setRoleId}
-        messages={chatMessages}
-        input={chatInput}
-        onInputChange={setChatInput}
-        onSend={handleSendChat}
-        loading={chatLoading}
-      />
+      {!presentationMode && (
+        <ChatWidget
+          open={chatOpen}
+          onToggle={() => setChatOpen((v) => !v)}
+          selectedNode={selectedNode}
+          roleId={roleId}
+          onRoleChange={setRoleId}
+          messages={chatMessages}
+          input={chatInput}
+          onInputChange={setChatInput}
+          onSend={handleSendChat}
+          loading={chatLoading}
+        />
+      )}
       <BranchModal
         open={branchModalOpen}
         node={branchTargetNode}
@@ -373,6 +469,15 @@ export default function SimPage() {
         onGenerate={handleBranchGenerate}
         onClose={() => setBranchModalOpen(false)}
         loading={branchLoading}
+      />
+      <CompareModal
+        open={compareOpen}
+        left={compareLeft}
+        right={compareRight}
+        leftDetails={compareLeft ? expanded[compareLeft.id] : null}
+        rightDetails={compareRight ? expanded[compareRight.id] : null}
+        onClose={() => setCompareOpen(false)}
+        onExport={handleExportCompareConclusion}
       />
       <ToastStack items={toasts} />
     </main>
@@ -455,6 +560,14 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
     }
     h2 { margin: 0 0 8px; }
     p { margin: 0 0 14px; color: var(--muted); }
+    .crumb {
+      margin: 0 0 12px;
+      font-size: 12px;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .lineage-wrap {
       display: flex;
       gap: 10px;
@@ -483,6 +596,16 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
     .node-short {
       display: block;
       font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .node-step {
+      display: inline-block;
+      font-size: 11px;
+      border-radius: 999px;
+      padding: 1px 6px;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #334155;
       margin-bottom: 6px;
     }
     .node-desc {
@@ -547,6 +670,7 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
 <body>
   <h2>Lineage Chain</h2>
   <p>Nodes are shown left to right. Click a node to open details.</p>
+  <div id="crumb" class="crumb"></div>
   <div id="lineage" class="lineage-wrap"></div>
   <div id="modal" class="modal-backdrop">
     <div id="detail" class="detail-modal"></div>
@@ -554,6 +678,7 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
   <script>
     const state = ${escapedData};
     const lineageEl = document.getElementById("lineage");
+    const crumbEl = document.getElementById("crumb");
     const modalEl = document.getElementById("modal");
     const detailEl = document.getElementById("detail");
     let activeId = state.lineage.length ? state.lineage[state.lineage.length - 1].id : null;
@@ -572,11 +697,13 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
           ? (node.input_text || node.one_liner || "No description")
           : (node.one_liner || "No description");
         item.innerHTML =
+          '<span class="node-step">Step ' + (idx + 1) + "</span>" +
           '<span class="node-short">' + escapeHtml(shortTitle) + "</span>" +
           '<div class="node-desc">' + escapeHtml(description) + "</div>";
         item.addEventListener("click", () => {
           activeId = node.id;
           renderList();
+          renderBreadcrumb();
           openDetailModal();
         });
         lineageEl.appendChild(item);
@@ -616,6 +743,15 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
       if (closeBtn) {
         closeBtn.addEventListener("click", closeDetailModal);
       }
+    }
+
+    function renderBreadcrumb() {
+      const chain = state.lineage
+        .map((node) => shortLabel(node.title || node.id))
+        .join(" > ");
+      const current = state.lineage.find((x) => x.id === activeId);
+      const currentText = current ? shortLabel(current.title || current.id) : "Node";
+      crumbEl.textContent = "Timeline: " + chain + " | Current: " + currentText;
     }
 
     function openDetailModal() {
@@ -658,6 +794,7 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
     });
 
     renderList();
+    renderBreadcrumb();
   </script>
 </body>
 </html>`;

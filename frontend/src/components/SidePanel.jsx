@@ -4,7 +4,9 @@ export default function SidePanel({
   loading,
   onToggleCollapse,
   onCopySummary,
-  onOpenLineageWindow
+  onOpenLineageWindow,
+  onToggleCompare,
+  compareSelected
 }) {
   if (!selectedNode) {
     return (
@@ -60,6 +62,9 @@ export default function SidePanel({
         </button>
         <button className="btn btn-soft" onClick={onOpenLineageWindow}>
           Open Lineage Window
+        </button>
+        <button className="btn btn-soft" onClick={onToggleCompare}>
+          {compareSelected ? "Remove Compare" : "Select Compare"}
         </button>
       </div>
     </aside>

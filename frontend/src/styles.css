@@ -227,6 +227,24 @@ select {
   color: #ecfeff;
 }
 
+.chip-node.chip-risk {
+  border-color: rgba(254, 202, 202, 0.8);
+  background: rgba(127, 29, 29, 0.24);
+  color: #fee2e2;
+}
+
+.chip-node.chip-benefit {
+  border-color: rgba(110, 231, 183, 0.8);
+  background: rgba(6, 78, 59, 0.28);
+  color: #d1fae5;
+}
+
+.chip-node.chip-action {
+  border-color: rgba(186, 230, 253, 0.85);
+  background: rgba(8, 47, 73, 0.28);
+  color: #e0f2fe;
+}
+
 .confidence,
 .muted,
 .disclaimer {
@@ -274,16 +292,26 @@ select {
   border-radius: 10px;
   border: 1px solid transparent;
   transition: box-shadow 0.16s ease, border-color 0.16s ease, transform 0.12s ease;
+  animation: nodeCascadeIn 420ms ease-out both;
 }
 
-.world-node p {
-  margin: 8px 0;
+.node-subtitle {
+  margin-top: 4px;
+  color: rgba(236, 254, 255, 0.75);
+  font-size: 12px;
+  line-height: 1.3;
+  max-width: 240px;
 }
 
 .world-node.is-selected {
   border-color: rgba(236, 254, 255, 0.95);
   box-shadow: 0 0 0 2px rgba(186, 230, 253, 0.5), 0 10px 20px rgba(2, 132, 199, 0.25);
   transform: translateY(-1px);
+}
+
+.world-node.is-compare {
+  border-color: rgba(125, 211, 252, 0.95);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35);
 }
 
 .world-node-head {
@@ -419,6 +447,13 @@ select {
   gap: 10px;
 }
 
+.compare-grid > div {
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  padding: 10px;
+  background: #f8fbff;
+}
+
 .toast-stack {
   position: fixed;
   bottom: 16px;
@@ -457,6 +492,38 @@ select {
 
 .error {
   border-color: #fecaca;
+}
+
+.presentation-mode .workspace {
+  grid-template-columns: 1fr;
+}
+
+.presentation-mode .graph-canvas {
+  height: 680px;
+}
+
+.react-flow__edge.edge-cascade path {
+  animation: edgeFadeIn 420ms ease-out forwards;
+}
+
+@keyframes nodeCascadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes edgeFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 1060px) {
