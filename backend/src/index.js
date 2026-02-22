@@ -34,6 +34,7 @@ const RESTRICTED_PATTERNS = [
 ];
 
 const rateState = new Map();
+const FORCE_JSON_COERCE = String(process.env.FORCE_JSON_COERCE || "1") !== "0";
 ensureDir(CACHE_DIR);
 
 app.get("/api/health", (_req, res) => {
@@ -326,7 +327,8 @@ async function buildInitialGraphWithClaude(eventText, options) {
     messages: [{ role: "user", content: `Event:${eventText}\nTimeframe:${timeframe}\nStakes:${stakes}\nGoal:${goal}` }],
     maxTokens: 500
   });
-  let parsed = safeJsonParse(text);
+  const planSchema = '{"worlds":[{"suffix":"A","distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}';
+  let parsed = await parseOrCoerceJson(text, planSchema, "basic");
   let worlds = normalizePlanWorlds(parsed);
   if (!worlds) {
     const retryText = await callClaudeText({
@@ -342,7 +344,7 @@ async function buildInitialGraphWithClaude(eventText, options) {
       messages: [{ role: "user", content: `Event:${eventText}\nTimeframe:${timeframe}\nStakes:${stakes}\nGoal:${goal}` }],
       maxTokens: 420
     });
-    parsed = safeJsonParse(retryText);
+    parsed = await parseOrCoerceJson(retryText, planSchema, "basic");
     worlds = normalizePlanWorlds(parsed);
   }
   if (!worlds) {
@@ -407,8 +409,9 @@ async function buildNodeDetailsWithClaude(nodeId, nodeContext = {}) {
     ],
     maxTokens: 260
   });
-  const parsed = safeJsonParse(text);
-  if (!parsed || isGenericNodeDetails(parsed, nodeId, nodeContext)) {
+  const detailsSchema = '{"consequences":["...","...","..."],"why_it_changes":"...","next_question":"...","risk_flags":["...","..."]}';
+  const parsed = await parseOrCoerceJson(text, detailsSchema, "basic");
+  if (!parsed) {
     console.warn("[expand] content fallback: invalid or generic node details from provider", { nodeId });
     return markContentFallback(buildNodeDetailsFallback(nodeId, nodeContext), "invalid_expand_details");
   }
@@ -465,8 +468,25 @@ async function buildBranchChildrenWithClaude(
     ],
     maxTokens: 420
   });
-  const parsed = safeJsonParse(text);
-  const normalizedChildren = normalizeBranchChildren(parsed);
+  const branchSchema = '{"children":[{"index":1,"distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}';
+  let parsed = await parseOrCoerceJson(text, branchSchema, "branch");
+  let normalizedChildren = normalizeBranchChildren(parsed);
+  if (!normalizedChildren) {
+    const retryText = await callClaudeText({
+      model: getModelForTask("branch"),
+      system: [
+        "You are EventSim branching engine.",
+        "Output must be valid minified JSON only.",
+        "No markdown, no prose, no code fences.",
+        '{"children":[{"index":1,"distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
+        "Exactly 3 children."
+      ].join(" "),
+      messages: [{ role: "user", content: `Parent:${parentTitle}\nQuestion:${userQuestion || ""}` }],
+      maxTokens: 280
+    });
+    parsed = await parseOrCoerceJson(retryText, branchSchema, "branch");
+    normalizedChildren = normalizeBranchChildren(parsed);
+  }
   if (!normalizedChildren) {
     console.warn("[branch] content fallback: invalid JSON schema from provider");
     return markContentFallback(
@@ -527,7 +547,8 @@ async function buildRoleReplyWithClaude(role, nodeTitle, message, history) {
     messages: [{ role: "user", content: `Node:${nodeTitle}\nHistory:\n${historyLines}\nUser:${message}` }],
     maxTokens: 260
   });
-  let parsed = safeJsonParse(text);
+  const chatSchema = '{"answer":"...","bullets":["...","...","..."],"nextQuestion":"..."}';
+  let parsed = await parseOrCoerceJson(text, chatSchema, "chatbot");
   if (!parsed) {
     const retryText = await callClaudeText({
       model: getModelForTask("chatbot"),
@@ -540,7 +561,7 @@ async function buildRoleReplyWithClaude(role, nodeTitle, message, history) {
       messages: [{ role: "user", content: `Node:${nodeTitle}\nUser:${message}` }],
       maxTokens: 220
     });
-    parsed = safeJsonParse(retryText);
+    parsed = await parseOrCoerceJson(retryText, chatSchema, "chatbot");
   }
   if (!parsed) {
     const fromText = parseRoleReplyText(text, role, nodeTitle);
@@ -789,6 +810,27 @@ function safeJsonParse(text) {
   }
 }
 
+async function parseOrCoerceJson(text, schemaHint, task) {
+  const parsed = safeJsonParse(text);
+  if (parsed || !FORCE_JSON_COERCE || !ANTHROPIC_CONFIG.apiKey) return parsed;
+  try {
+    const repaired = await callClaudeText({
+      model: getModelForTask(task || "basic"),
+      system: [
+        "You are a strict JSON formatter.",
+        "Convert the raw content into valid minified JSON.",
+        "Return JSON only with no markdown and no explanation.",
+        `Target schema: ${schemaHint}`
+      ].join(" "),
+      messages: [{ role: "user", content: `Raw content:\n${String(text || "").slice(0, 5000)}` }],
+      maxTokens: 520
+    });
+    return safeJsonParse(repaired);
+  } catch {
+    return null;
+  }
+}
+
 function normalizeStringArray(value, maxLen, fallback) {
   if (!Array.isArray(value) || value.length === 0) return fallback;
   return value.map((item) => String(item || "").trim()).filter(Boolean).slice(0, maxLen);
@@ -879,27 +921,6 @@ function normalizeDistance(distance) {
   const value = String(distance || "").toLowerCase();
   if (value === "minimal" || value === "moderate" || value === "radical") return value;
   return "moderate";
-}
-
-function isGenericNodeDetails(parsed, nodeId, nodeContext = {}) {
-  const text = [
-    ...(Array.isArray(parsed?.consequences) ? parsed.consequences : []),
-    parsed?.why_it_changes,
-    parsed?.next_question
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  if (!text) return true;
-  const genericPatterns = [
-    "alternate timeline",
-    "separate trajectory",
-    "node id",
-    "lacks sufficient context",
-    "unable to determine the domain"
-  ];
-  if (genericPatterns.some((p) => p && text.includes(p))) return true;
-  return false;
 }
 
 function fallbackBranchTitle(parentTitle, questionHint, childLabel, distance) {
