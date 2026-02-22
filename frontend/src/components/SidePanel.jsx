@@ -42,12 +42,20 @@ export default function SidePanel({
         <>
           <h4>✨ Key Effects</h4>
           <ul>
-            {(details.consequences || []).slice(0, 2).map((item) => (
+            {(details.consequences || []).slice(0, 3).map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
-          <h4>⚠️ Risks</h4>
-          <p>{(details.risk_flags || []).join(", ") || "uncertainty"}</p>
+          <h4>🧩 Why It Changes</h4>
+          <p>{details.why_it_changes || "No explanation yet."}</p>
+          <h4>⚠️ Risk Flags</h4>
+          <div className="chip-row">
+            {(details.risk_flags || ["uncertainty"]).map((flag) => (
+              <span key={flag} className="chip chip-warn">
+                {flag}
+              </span>
+            ))}
+          </div>
           <h4>🎯 Next</h4>
           <p>
             <strong>{details.next_question || "What should we test next?"}</strong>
