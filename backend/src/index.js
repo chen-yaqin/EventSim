@@ -15,6 +15,7 @@ import {
   PROVIDER_CONFIG,
   runWithRuntimeConfig
 } from "./config/models.js";
+import { retrieveHistoricalMatch } from "./ragService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,13 +83,16 @@ app.post("/api/plan", async (req, res) => {
   }
 
   const eventHash = hashText(eventText.trim().toLowerCase());
-  const promptVersion = "v8";
+  const promptVersion = "v10";
   const key = hashText(JSON.stringify({ t: eventText, o: options, p: promptVersion }));
   const cacheFile = path.join(CACHE_DIR, `plan_${key}.json`);
   if (useCache && fs.existsSync(cacheFile)) {
     const cached = readJson(cacheFile);
     return res.json({ ...cached, meta: { ...cached.meta, cache: "hit", cacheEnabled: true } });
   }
+
+  const ragMatch = retrieveHistoricalMatch(eventText);
+  const historicalContext = ragMatch.item;
 
   const rootTitleGenerated = await withProviderFallback(
     "basic",
@@ -100,7 +104,7 @@ app.post("/api/plan", async (req, res) => {
 
   const generated = await withProviderFallback(
     "basic",
-    () => buildInitialGraphWithClaude(eventText, options, rootTitle),
+    () => buildInitialGraphWithClaude(eventText, options, rootTitle, historicalContext),
     () => buildInitialGraphFallback(eventText, options, rootTitle),
     "plan"
   );
@@ -116,6 +120,11 @@ app.post("/api/plan", async (req, res) => {
       fallbackReason: generated.fallbackReason,
       contentFallback: Boolean(generated.data?.__contentFallback),
       contentFallbackReason: generated.data?.__contentFallbackReason || null,
+      rag: {
+        hit: Boolean(ragMatch.hit),
+        score: Number.isFinite(ragMatch.score) ? Number(ragMatch.score.toFixed(4)) : null,
+        historicalEvent: historicalContext?.historical_event || null
+      },
       eventHash,
       promptVersion,
       generatedAt: new Date().toISOString(),
@@ -412,23 +421,41 @@ function parseRuntimeConfigFromHeaders(headers = {}) {
   };
 }
 
-async function buildInitialGraphWithClaude(eventText, options, rootTitle = "") {
+async function buildInitialGraphWithClaude(eventText, options, rootTitle = "", historicalContext = null) {
   const timeframe = options.timeframe || "1 year";
   const stakes = options.stakes || "medium";
   const goal = options.goal || "growth";
-  const system = [
+  const systemParts = [
     "You are EventSim planner.",
     "Return JSON only:",
     '{"worlds":[{"suffix":"A","distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
     "Exactly 3 worlds with suffix A/B/C.",
     "Keep text concise: title <= 4 words, delta <= 8 words, one_liner <= 14 words.",
     "Avoid filler and hedging language."
-  ].join(" ");
+  ];
+  if (historicalContext) {
+    systemParts.push(
+      "[CRITICAL: HISTORICAL DATA GROUNDING]",
+      `You must ground the branch severities using historical statistics from ${historicalContext.historical_event}.`,
+      `Context: ${historicalContext.statistical_insights.baseline_context}`,
+      `Minimal branch constraint: ${historicalContext.statistical_insights.minimal_impact}`,
+      `Moderate branch constraint: ${historicalContext.statistical_insights.moderate_impact}`,
+      `Radical branch constraint: ${historicalContext.statistical_insights.radical_impact}`,
+      "Ensure branch severity levels directly reflect these probabilities."
+    );
+  }
+  const system = systemParts.join(" ");
+
+  let userContent = `Event:${eventText}\nTimeframe:${timeframe}\nStakes:${stakes}\nGoal:${goal}`;
+  if (historicalContext) {
+    userContent += `\nHistoricalProfile:${historicalContext.historical_event}`;
+  }
+
   const text = await callModelText({
     task: "basic",
     model: getModelForTask("basic"),
     system,
-    messages: [{ role: "user", content: `Event:${eventText}\nTimeframe:${timeframe}\nStakes:${stakes}\nGoal:${goal}` }],
+    messages: [{ role: "user", content: userContent }],
     maxTokens: 500
   });
   const planSchema = '{"worlds":[{"suffix":"A","distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}';
@@ -445,9 +472,19 @@ async function buildInitialGraphWithClaude(eventText, options, rootTitle = "") {
         "Required schema:",
         '{"worlds":[{"suffix":"A","distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
         "Exactly 3 items.",
-        "Concise text only: title <= 4 words, delta <= 8 words, one_liner <= 14 words."
+        "Concise text only: title <= 4 words, delta <= 8 words, one_liner <= 14 words.",
+        historicalContext
+          ? [
+              "[CRITICAL: HISTORICAL DATA GROUNDING]",
+              `Use historical profile ${historicalContext.historical_event}.`,
+              `Context: ${historicalContext.statistical_insights.baseline_context}`,
+              `Minimal branch constraint: ${historicalContext.statistical_insights.minimal_impact}`,
+              `Moderate branch constraint: ${historicalContext.statistical_insights.moderate_impact}`,
+              `Radical branch constraint: ${historicalContext.statistical_insights.radical_impact}`
+            ].join(" ")
+          : ""
       ].join(" "),
-      messages: [{ role: "user", content: `Event:${eventText}\nTimeframe:${timeframe}\nStakes:${stakes}\nGoal:${goal}` }],
+      messages: [{ role: "user", content: userContent }],
       maxTokens: 420
     });
     parsed = await parseOrCoerceJson(retryText, planSchema, "basic");

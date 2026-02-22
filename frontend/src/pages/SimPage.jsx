@@ -33,6 +33,7 @@ export default function SimPage() {
   });
   const [graph, setGraph] = useState({ nodes: [], edges: [] });
   const [eventHash, setEventHash] = useState("");
+  const [ragMeta, setRagMeta] = useState(null);
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [expanded, setExpanded] = useState({});
@@ -82,6 +83,7 @@ export default function SimPage() {
         const demo = await fetchDemo("offer-decision");
         setGraph(demo.graph || { nodes: [], edges: [] });
         setEventHash(demo.meta?.eventHash || `demo_${demo.id || "offer_decision"}`);
+        setRagMeta(demo.meta?.rag || null);
         setSelectedId("root");
         setExpanded({});
         setChatByKey({});
@@ -109,6 +111,7 @@ export default function SimPage() {
       const result = await fetchPlan(payload);
       setGraph(result.graph);
       setEventHash(result.meta.eventHash);
+      setRagMeta(result.meta?.rag || null);
       setSelectedId("root");
       setExpanded({});
       setChatByKey({});
@@ -453,6 +456,16 @@ export default function SimPage() {
       <div className="workspace">
         <div className="left">
           <ScenarioForm form={form} onChange={setForm} onGenerate={handleGenerate} loading={loadingPlan} />
+          {ragMeta?.hit ? (
+            <div className={`rag-badge ${ragMeta.hit ? "rag-badge-hit" : "rag-badge-miss"}`}>
+              <span className="rag-badge-label">{ragMeta.hit ? "RAG Hit" : "RAG Miss"}</span>
+              <span className="rag-badge-text">
+                {ragMeta.hit
+                  ? `Grounded by FEMA: ${ragMeta.historicalEvent || "Matched historical profile"}`
+                  : "No historical FEMA profile matched. Using generic generation."}
+              </span>
+            </div>
+          ) : null}
           <GraphCanvas
             nodes={flow.nodes}
             edges={flow.edges}
