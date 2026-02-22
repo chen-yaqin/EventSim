@@ -56,6 +56,16 @@ EventSim helps you answer:
 - Node.js 18+ (20+ recommended)
 - npm 9+
 
+### 0) Install Dependencies Once (Workspace)
+
+From project root:
+
+```bash
+npm install
+```
+
+This installs both `backend` and `frontend` workspace dependencies, including `fuse.js` (no separate install needed).
+
 ### 1) Configure Backend Environment
 
 Create `backend/.env` from `backend/.env.example`.
@@ -77,7 +87,6 @@ If no API key is set, fallback logic still supports demo usage.
 
 ```bash
 cd backend
-npm install
 npm run dev
 ```
 
@@ -87,7 +96,6 @@ Default: `http://localhost:8787`
 
 ```bash
 cd frontend
-npm install
 npm run dev
 ```
 
