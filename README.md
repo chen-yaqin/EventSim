@@ -1,62 +1,10 @@
 # EventSim
 
-**Explore decisions as branching futures.**
-
-EventSim is a hackathon-ready interactive simulation tool that turns one event into multiple possible futures, compares outcomes, and helps users reason through tradeoffs from different role perspectives.
-
-## Why EventSim
-
-Most decision tools are linear. Real decisions are not.
-
-EventSim helps you answer:
-
-- What happens if we choose Path A vs Path B?
-- Which branch is safer, bolder, or more robust?
-- How does this look from different stakeholder roles?
-- What should we test next before committing?
-
-## What Makes It Demo-Strong
-
-- Fast graph generation from one event prompt
-- Click-to-expand branch intelligence (`consequences`, `why`, `risk`, `next question`)
-- Double-click branching for deeper what-if exploration
-- Two-branch compare (`Pros / Cons / Risks`) with exportable conclusion
-- Role chat with both preset roles and **Custom Role**
-- Lineage timeline window for explainable branch history
-- Built-in fallback + cache for reliable live demos
-
-## Core Features
-
-- **Counterfactual Graph**: root + world nodes with `minimal / moderate / radical` divergence
-- **Lazy Detail Expansion**: load analysis only when needed
-- **Branching Engine**: configurable child count per node
-- **Role Chat**:
-  - `You-Now`
-  - `You-in-5-Years`
-  - `Neutral Advisor`
-  - `Custom Role` (name + style)
-- **Branch Compare**: side-by-side cards for `Pros / Cons / Risks`
-- **Lineage Window**: timeline steps, breadcrumb, detail modal
-- **Export**: graph JSON + compare conclusion text
-
-## Screens and Flow
-
-1. Enter an event in `/sim`
-2. Generate graph
-3. Single-click a node to inspect details
-4. Double-click a world node to branch
-5. Select two nodes and run compare
-6. Use role chat to pressure-test decisions
-7. Open lineage window to present branch history
+EventSim is an interactive decision-simulation tool. You enter one event, it generates multiple future branches, and helps you compare tradeoffs, risks, and likely outcomes.
 
 ## Quick Start
 
-### Prerequisites
-
-- Node.js 18+ (20+ recommended)
-- npm 9+
-
-### 0) Install Dependencies Once (Workspace)
+### 1. Install dependencies
 
 From project root:
 
@@ -64,165 +12,132 @@ From project root:
 npm install
 ```
 
-This installs both `backend` and `frontend` workspace dependencies, including `fuse.js` (no separate install needed).
+### 2. Configure environment files
 
-### 1) Configure Backend Environment
-
-Create `backend/.env` from `backend/.env.example`.
+Create backend env file from template:
 
 ```bash
-ANTHROPIC_API_KEY=your_key_here
-ANTHROPIC_VERSION=2023-06-01
-ANTHROPIC_API_URL=https://api.anthropic.com/v1/messages
-
-ANTHROPIC_MODEL=claude-3-5-haiku-latest
-ANTHROPIC_MODEL_BASIC=claude-3-5-haiku-latest
-ANTHROPIC_MODEL_CHATBOT=claude-3-5-sonnet-latest
-ANTHROPIC_MODEL_BRANCH=claude-3-5-sonnet-latest
+copy backend\.env.example backend\.env
 ```
 
-If no API key is set, fallback logic still supports demo usage.
+Frontend already points to local backend by default (`frontend/.env.example` uses `VITE_API_URL=http://localhost:8787`), so you usually do not need extra frontend config.
 
-### 2) Run Backend
+### 3. Run the app
+
+Terminal 1 (backend):
+
+```bash
+npm run dev:backend
+```
+
+Terminal 2 (frontend):
+
+```bash
+npm run dev:frontend
+```
+
+Open:
+
+- App: `http://localhost:5173`
+- Health check: `http://localhost:8787/api/health`
+
+## Core Capabilities
+
+- Counterfactual branch generation (`minimal / moderate / radical`)
+- Lazy node expansion (`consequences / why / risk / next question`)
+- Double-click world nodes to branch further (configurable child count)
+- Branch comparison (`Pros / Cons / Risks`) with exportable conclusion
+- Multi-role chat (`You-Now`, `You-in-5-Years`, `Neutral Advisor`, `Custom Role`)
+- Lineage timeline for explainable branch history
+- Cache + fallback path for stable demos
+
+## Typical User Flow
+
+1. Open `/sim`
+2. Enter an event and generate the initial graph
+3. Click a node to inspect details
+4. Double-click a world node to create more branches
+5. Select two branches and compare them
+6. Use role chat to challenge assumptions
+7. Use lineage view to present branch evolution
+
+## Run Modes
+
+### Mode A: Development mode (recommended)
+
+Run backend and frontend separately for fast iteration:
+
+```bash
+npm run dev:backend
+npm run dev:frontend
+```
+
+### Mode B: Single-port bundled mode
+
+Backend serves built frontend assets from `frontend/dist`:
 
 ```bash
 cd backend
-npm run dev
+npm run start:bundle
 ```
 
-Default: `http://localhost:8787`
+Open:
 
-### 3) Run Frontend (Dev)
+- `http://localhost:8787`
 
-```bash
-cd frontend
-npm run dev
-```
-
-Default: `http://localhost:5173`
-
-Frontend dev now defaults API to `http://localhost:8787`.
-Optional override:
-
-```powershell
-$env:VITE_API_URL="http://localhost:8787"
-npm run dev
-```
-
-### 4) Open Routes
-
-- Home: `/`
-- Simulator: `/sim`
-- Demo list: `/demo`
-
-## User Instructions
-
-### Simulator Basics
-
-- Enter your event and click **Generate Graph**
-- **Single click** node: select + load details
-- **Double click** world node: open branch modal
-- Use **Collapse/Expand** to manage tree visibility
-
-### Branch Compare
-
-- Select two nodes using `Compare`
-- Click **Branch Compare**
-- Review side-by-side:
-  - Pros
-  - Cons
-  - Risks
-- Export summary with **Export Conclusion**
-
-### Role Chat
-
-- Open **Role Chat**
-- Choose preset role or **Custom Role**
-- For custom role, provide:
-  - role name
-  - role style
-- Ask scenario-specific questions tied to selected node
-
-### Lineage Window
-
-- Open from side panel
-- Follow timeline sequence and breadcrumb
-- Click steps to inspect detail modal
-
-## Architecture
-
-- Frontend: React + Vite + React Flow + React Router
-- Backend: Node.js + Express
-- Provider routing: Anthropic/OpenAI/Gemini + deterministic fallback
-- Cache: JSON files in `backend/cache`
-
-## Repository Structure
+## Project Structure
 
 ```text
 EventSim/
-  frontend/
-    src/
-      components/
-      pages/
-      lib/
-      styles.css
   backend/
     src/
-      index.js
-      config/
     cache/
     demo/
+    .env.example
+  frontend/
+    src/
+    .env.example
   docs/
   assets/
 ```
 
 ## Reliability and Safety
 
-- Rate-limited endpoints for stability
-- File cache for repeatable runs
-- Restricted-content guardrails (e.g. self-harm, medical/legal advice categories)
-- Fallback generation path for provider failures
+- Rate limiting on key endpoints
+- JSON cache for repeatable runs
+- Restricted-content guardrails (medical/legal/self-harm categories)
+- Provider fallback path when primary model calls fail
 
 ## Hackathon Compliance
-
-This section records how our team satisfies the required submission conditions.
 
 ### Team and Track
 
 - Track: General Track
-- Team members:
-  - Yaqin Chen
-  - Runlin Song
-  - Xiayu Zhao
-- Team size is 3, which is within the General Track requirement (2-4 people).
+- Members: Yaqin Chen, Runlin Song, Xiayu Zhao
+- Team size: 3
 
 ### Dataset and Data Science Use
 
-- Dataset used: FEMA disaster declarations from Kaggle.
-- Data preparation and statistical processing are implemented in `process_data.py`.
-- The pipeline uses:
-  - feature selection from FEMA records
-  - aggregation by state and incident type
-  - historical probability estimation (IA/PA rates)
-  - sparse-category filtering for statistical stability
-  - export to `backend/data/fema_historical_insights.json` for RAG grounding
-- This satisfies the requirement to use at least one dataset with appropriate data science methods.
+- Dataset: FEMA disaster declarations ( https://www.kaggle.com/datasets/jgalin/disaster-declaration-summaries-19532022 )
+- Processing script: `process_data.py`
+- Methods used: feature selection, aggregation by state/incident type, IA/PA probability estimation, sparse-category filtering
+- Output: `backend/data/fema_historical_insights.json` for RAG grounding
 
 ### Original Work and Build Ownership
 
-- Core idea, implementation, and integration are produced by team members during the hackathon.
-- External mentor input is limited to guidance and feedback, not direct implementation handoff.
+- Core idea, implementation, and integration were completed by team members during the hackathon.
+- External mentor input was limited to guidance/feedback, not implementation handoff.
 
 ### AI Tool Citation
 
-- AI tools used in this project:
-  - Codex
-  - Gemini
-  - GPT5.2
-- AI tools were used for coding assistance, prompt drafting, and documentation support.
-- Final engineering decisions, validation, and integration were completed by the team.
+- Codex
+- Gemini
+- GPT5.2
+- Claude API
 
-### Presentation and Judging Acknowledgement
+Used for coding assistance, prompt drafting, and documentation support. Final engineering validation and integration were completed by the team.
+
+### Presentation and Judging
 
 - The team will present the project for judging eligibility.
 - The team acknowledges and accepts final judging outcomes.
