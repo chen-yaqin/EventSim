@@ -5,7 +5,14 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ANTHROPIC_CONFIG, getModelForTask, MODEL_CONFIG } from "./config/models.js";
+import {
+  canCallTask,
+  getModelForTask,
+  getRouteForTask,
+  hasProviderApiKey,
+  MODEL_CONFIG,
+  PROVIDER_CONFIG
+} from "./config/models.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,7 +49,12 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     service: "eventsim-backend",
     now: new Date().toISOString(),
-    anthropicConfigured: Boolean(ANTHROPIC_CONFIG.apiKey),
+    anthropicConfigured: Boolean(PROVIDER_CONFIG.anthropic.apiKey),
+    providersConfigured: {
+      anthropic: Boolean(PROVIDER_CONFIG.anthropic.apiKey),
+      openai: Boolean(PROVIDER_CONFIG.openai.apiKey),
+      gemini: Boolean(PROVIDER_CONFIG.gemini.apiKey)
+    },
     models: MODEL_CONFIG
   });
 });
@@ -70,6 +82,7 @@ app.post("/api/plan", async (req, res) => {
   }
 
   const rootTitleGenerated = await withProviderFallback(
+    "basic",
     () => buildRootTitleWithClaude(eventText),
     () => buildRootTitleFallback(eventText),
     "root_title"
@@ -77,6 +90,7 @@ app.post("/api/plan", async (req, res) => {
   const rootTitle = normalizeRootTitle(rootTitleGenerated.data?.title, eventText);
 
   const generated = await withProviderFallback(
+    "basic",
     () => buildInitialGraphWithClaude(eventText, options, rootTitle),
     () => buildInitialGraphFallback(eventText, options, rootTitle),
     "plan"
@@ -154,6 +168,7 @@ app.post("/api/expand", async (req, res) => {
     lineage: Array.isArray(lineage) ? lineage : []
   };
   const generated = await withProviderFallback(
+    "basic",
     () => buildNodeDetailsWithClaude(nodeId, nodeContext),
     () => buildNodeDetailsFallback(nodeId, nodeContext),
     "expand"
@@ -233,6 +248,7 @@ app.post("/api/branch", async (req, res) => {
     tags: Array.isArray(parentTags) ? parentTags : []
   };
   const generated = await withProviderFallback(
+    "branch",
     () =>
       buildBranchChildrenWithClaude(
         parentNodeId,
@@ -315,6 +331,7 @@ app.post("/api/chat", async (req, res) => {
   }
 
   const generated = await withProviderFallback(
+    "chatbot",
     () => buildRoleReplyWithClaude(role, nodeTitle || nodeId, message, history),
     () => buildRoleReplyFallback(role, nodeTitle || nodeId, message, history),
     "chat"
@@ -348,7 +365,11 @@ app.get("/api/demo/:id", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[eventsim] backend listening on http://localhost:${PORT}`);
-  console.log(`[eventsim] anthropic configured: ${Boolean(ANTHROPIC_CONFIG.apiKey)}`);
+  console.log(`[eventsim] providers configured:`, {
+    anthropic: Boolean(PROVIDER_CONFIG.anthropic.apiKey),
+    openai: Boolean(PROVIDER_CONFIG.openai.apiKey),
+    gemini: Boolean(PROVIDER_CONFIG.gemini.apiKey)
+  });
   console.log(`[eventsim] models:`, MODEL_CONFIG);
 });
 
@@ -364,7 +385,8 @@ async function buildInitialGraphWithClaude(eventText, options, rootTitle = "") {
     "Keep text concise: title <= 4 words, delta <= 8 words, one_liner <= 14 words.",
     "Avoid filler and hedging language."
   ].join(" ");
-  const text = await callClaudeText({
+  const text = await callModelText({
+    task: "basic",
     model: getModelForTask("basic"),
     system,
     messages: [{ role: "user", content: `Event:${eventText}\nTimeframe:${timeframe}\nStakes:${stakes}\nGoal:${goal}` }],
@@ -374,7 +396,8 @@ async function buildInitialGraphWithClaude(eventText, options, rootTitle = "") {
   let parsed = await parseOrCoerceJson(text, planSchema, "basic");
   let worlds = normalizePlanWorlds(parsed);
   if (!worlds) {
-    const retryText = await callClaudeText({
+    const retryText = await callModelText({
+      task: "basic",
       model: getModelForTask("basic"),
       system: [
         "You are EventSim planner.",
@@ -437,7 +460,8 @@ async function buildInitialGraphWithClaude(eventText, options, rootTitle = "") {
 async function buildNodeDetailsWithClaude(nodeId, nodeContext = {}) {
   const tagText = Array.isArray(nodeContext.tags) ? nodeContext.tags.join(", ") : "";
   const lineageText = lineageToText(nodeContext.lineage || []);
-  const text = await callClaudeText({
+  const text = await callModelText({
+    task: "basic",
     model: getModelForTask("basic"),
     system: [
       "You are EventSim node analyst.",
@@ -502,7 +526,8 @@ async function buildBranchChildrenWithClaude(
   const shortLineage = lineageToText(lineage.slice(-3));
   const baseLabel = normalizeBranchLabel(parentBranchLabel || extractTailLabel(parentNodeId));
   const contextTags = Array.isArray(parentContext.tags) ? parentContext.tags.join(", ") : "";
-  const text = await callClaudeText({
+  const text = await callModelText({
+    task: "branch",
     model: getModelForTask("branch"),
     system: [
       "You are EventSim branching engine.",
@@ -525,7 +550,8 @@ async function buildBranchChildrenWithClaude(
   let parsed = await parseOrCoerceJson(text, branchSchema, "branch");
   let normalizedChildren = normalizeBranchChildren(parsed, normalizedChildCount);
   if (!normalizedChildren) {
-    const retryText = await callClaudeText({
+    const retryText = await callModelText({
+      task: "branch",
       model: getModelForTask("branch"),
       system: [
         "You are EventSim branching engine.",
@@ -598,7 +624,8 @@ async function buildRoleReplyWithClaude(role, nodeTitle, message, history) {
         .filter(Boolean)
         .join("\n")
     : "";
-  const text = await callClaudeText({
+  const text = await callModelText({
+    task: "chatbot",
     model: getModelForTask("chatbot"),
     system: [
       `You are ${role.title}. Style: ${role.style}.`,
@@ -612,7 +639,8 @@ async function buildRoleReplyWithClaude(role, nodeTitle, message, history) {
   const chatSchema = '{"answer":"...","bullets":["...","...","..."],"nextQuestion":"..."}';
   let parsed = await parseOrCoerceJson(text, chatSchema, "chatbot");
   if (!parsed) {
-    const retryText = await callClaudeText({
+    const retryText = await callModelText({
+      task: "chatbot",
       model: getModelForTask("chatbot"),
       system: [
         `You are ${role.title}. Style: ${role.style}.`,
@@ -651,16 +679,32 @@ async function buildRoleReplyWithClaude(role, nodeTitle, message, history) {
   };
 }
 
-async function callClaudeText({ model, system, messages, maxTokens }) {
+async function callModelText({ task = "basic", provider, model, system, messages, maxTokens }) {
+  const route = getRouteForTask(task);
+  const selectedProvider = provider || route.provider;
+  const selectedModel = model || route.model;
+  if (!hasProviderApiKey(selectedProvider)) {
+    throw new Error(`Missing API key for provider: ${selectedProvider}`);
+  }
+  if (selectedProvider === "openai") {
+    return callOpenAIText({ model: selectedModel, system, messages, maxTokens });
+  }
+  if (selectedProvider === "gemini") {
+    return callGeminiText({ model: selectedModel, system, messages, maxTokens });
+  }
+  return callAnthropicText({ model: selectedModel, system, messages, maxTokens });
+}
+
+async function callAnthropicText({ model, system, messages, maxTokens }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   let response;
   try {
-    response = await fetch(ANTHROPIC_CONFIG.apiUrl, {
+    response = await fetch(PROVIDER_CONFIG.anthropic.apiUrl, {
       method: "POST",
       headers: {
-        "x-api-key": ANTHROPIC_CONFIG.apiKey,
-        "anthropic-version": ANTHROPIC_CONFIG.version,
+        "x-api-key": PROVIDER_CONFIG.anthropic.apiKey,
+        "anthropic-version": PROVIDER_CONFIG.anthropic.version,
         "content-type": "application/json"
       },
       body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0.2, system, messages }),
@@ -674,6 +718,101 @@ async function callClaudeText({ model, system, messages, maxTokens }) {
   }
   const data = await response.json();
   return (data?.content?.find((item) => item.type === "text")?.text || "").trim();
+}
+
+async function callOpenAIText({ model, system, messages, maxTokens }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  const assembled = [];
+  if (system) assembled.push({ role: "system", content: system });
+  if (Array.isArray(messages)) assembled.push(...messages.map(toOpenAIMessage));
+  let response;
+  try {
+    response = await fetch(PROVIDER_CONFIG.openai.apiUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${PROVIDER_CONFIG.openai.apiKey}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        max_tokens: maxTokens,
+        messages: assembled
+      }),
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!response.ok) {
+    throw new Error(`OpenAI error ${response.status}: ${await response.text()}`);
+  }
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => (typeof item?.text === "string" ? item.text : ""))
+      .join("")
+      .trim();
+  }
+  return "";
+}
+
+async function callGeminiText({ model, system, messages, maxTokens }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  const encodedModel = encodeURIComponent(model);
+  const url = `${PROVIDER_CONFIG.gemini.apiUrl}/${encodedModel}:generateContent?key=${encodeURIComponent(PROVIDER_CONFIG.gemini.apiKey)}`;
+  const payload = {
+    contents: Array.isArray(messages) ? messages.map(toGeminiMessage) : [],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: maxTokens
+    }
+  };
+  if (system) {
+    payload.systemInstruction = { parts: [{ text: system }] };
+  }
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!response.ok) {
+    throw new Error(`Gemini error ${response.status}: ${await response.text()}`);
+  }
+  const data = await response.json();
+  const parts = data?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .map((item) => (typeof item?.text === "string" ? item.text : ""))
+    .join("")
+    .trim();
+}
+
+function toOpenAIMessage(message) {
+  const role = message?.role === "assistant" ? "assistant" : "user";
+  return {
+    role,
+    content: typeof message?.content === "string" ? message.content : String(message?.content || "")
+  };
+}
+
+function toGeminiMessage(message) {
+  return {
+    role: message?.role === "assistant" ? "model" : "user",
+    parts: [{ text: typeof message?.content === "string" ? message.content : String(message?.content || "") }]
+  };
 }
 
 function buildInitialGraphFallback(eventText, options, rootTitle = "") {
@@ -723,7 +862,8 @@ function buildInitialGraphFallback(eventText, options, rootTitle = "") {
 }
 
 async function buildRootTitleWithClaude(eventText) {
-  const text = await callClaudeText({
+  const text = await callModelText({
+    task: "basic",
     model: getModelForTask("basic"),
     system: [
       "You are an event title compressor.",
@@ -875,12 +1015,13 @@ function buildRoleReplyFallback(role, nodeTitle, message, history = []) {
   };
 }
 
-async function withProviderFallback(tryPrimary, fallbackFn, label) {
-  if (!ANTHROPIC_CONFIG.apiKey) {
+async function withProviderFallback(task, tryPrimary, fallbackFn, label) {
+  const route = getRouteForTask(task);
+  if (!canCallTask(task)) {
     return { data: fallbackFn(), provider: "fallback", fallbackReason: "missing_api_key" };
   }
   try {
-    return { data: await tryPrimary(), provider: "anthropic", fallbackReason: null };
+    return { data: await tryPrimary(), provider: route.provider, fallbackReason: null };
   } catch (error) {
     console.error(`[${label}] primary provider failed, fallback enabled`, error);
     return { data: fallbackFn(), provider: "fallback", fallbackReason: "provider_error" };
@@ -916,10 +1057,12 @@ function safeJsonParse(text) {
 
 async function parseOrCoerceJson(text, schemaHint, task) {
   const parsed = safeJsonParse(text);
-  if (parsed || !FORCE_JSON_COERCE || !ANTHROPIC_CONFIG.apiKey) return parsed;
+  const normalizedTask = task || "basic";
+  if (parsed || !FORCE_JSON_COERCE || !canCallTask(normalizedTask)) return parsed;
   try {
-    const repaired = await callClaudeText({
-      model: getModelForTask(task || "basic"),
+    const repaired = await callModelText({
+      task: normalizedTask,
+      model: getModelForTask(normalizedTask),
       system: [
         "You are a strict JSON formatter.",
         "Convert the raw content into valid minified JSON.",
