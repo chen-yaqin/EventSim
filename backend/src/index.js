@@ -187,6 +187,7 @@ app.post("/api/branch", async (req, res) => {
     parentDelta,
     parentTags = [],
     userQuestion,
+    childCount,
     lineage = [],
     useCache = true
   } = req.body || {};
@@ -195,6 +196,7 @@ app.post("/api/branch", async (req, res) => {
     return res.status(400).json({ error: "restricted_content", message: "This query category is not supported." });
   }
 
+  const normalizedChildCount = clampInt(childCount, 1, 8, 3);
   const promptVersion = "v6";
   const key = hashText(
     JSON.stringify({
@@ -206,6 +208,7 @@ app.post("/api/branch", async (req, res) => {
       parentDelta,
       parentTags,
       userQuestion,
+      childCount: normalizedChildCount,
       lineage,
       promptVersion
     })
@@ -223,8 +226,26 @@ app.post("/api/branch", async (req, res) => {
     tags: Array.isArray(parentTags) ? parentTags : []
   };
   const generated = await withProviderFallback(
-    () => buildBranchChildrenWithClaude(parentNodeId, parentLabel, parentBranchLabel, userQuestion, lineage, parentContext),
-    () => buildBranchChildrenFallback(parentNodeId, parentLabel, parentBranchLabel, userQuestion, lineage, parentContext),
+    () =>
+      buildBranchChildrenWithClaude(
+        parentNodeId,
+        parentLabel,
+        parentBranchLabel,
+        userQuestion,
+        lineage,
+        parentContext,
+        normalizedChildCount
+      ),
+    () =>
+      buildBranchChildrenFallback(
+        parentNodeId,
+        parentLabel,
+        parentBranchLabel,
+        userQuestion,
+        lineage,
+        parentContext,
+        normalizedChildCount
+      ),
     "branch"
   );
   const payload = {
@@ -238,6 +259,7 @@ app.post("/api/branch", async (req, res) => {
       contentFallback: Boolean(generated.data?.__contentFallback),
       contentFallbackReason: generated.data?.__contentFallbackReason || null,
       parentNodeId,
+      childCount: normalizedChildCount,
       generatedAt: new Date().toISOString(),
       tokenEstimate: 420
     }
@@ -442,8 +464,13 @@ async function buildBranchChildrenWithClaude(
   parentBranchLabel,
   userQuestion,
   lineage = [],
-  parentContext = {}
+  parentContext = {},
+  childCount = 3
 ) {
+  const normalizedChildCount = clampInt(childCount, 1, 8, 3);
+  const indexHint = Array.from({ length: normalizedChildCount }, (_v, idx) => idx + 1).join("/");
+  const primaryMaxTokens = Math.min(900, 320 + normalizedChildCount * 90);
+  const retryMaxTokens = Math.min(760, 260 + normalizedChildCount * 60);
   const base = buildBranchBase(parentNodeId, userQuestion, lineage);
   const lineageText = lineageToText(lineage);
   const shortLineage = lineageToText(lineage.slice(-3));
@@ -455,7 +482,7 @@ async function buildBranchChildrenWithClaude(
       "You are EventSim branching engine.",
       "Return JSON only:",
       '{"children":[{"index":1,"distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
-      "Exactly 3 children with index 1/2/3.",
+      `Exactly ${normalizedChildCount} children with index ${indexHint}.`,
       "Use both lineage and question.",
       "Children must be grounded in parent context and evolve from parent assumptions.",
       "Keep each one_liner under 16 words."
@@ -466,11 +493,11 @@ async function buildBranchChildrenWithClaude(
         content: `Parent:${parentTitle}\nParentLabel:${baseLabel}\nParentDelta:${parentContext.delta || ""}\nParentOneLiner:${parentContext.oneLiner || ""}\nParentTags:${contextTags}\nLineage:${shortLineage}\nQuestion:${userQuestion || ""}`
       }
     ],
-    maxTokens: 420
+    maxTokens: primaryMaxTokens
   });
   const branchSchema = '{"children":[{"index":1,"distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}';
   let parsed = await parseOrCoerceJson(text, branchSchema, "branch");
-  let normalizedChildren = normalizeBranchChildren(parsed);
+  let normalizedChildren = normalizeBranchChildren(parsed, normalizedChildCount);
   if (!normalizedChildren) {
     const retryText = await callClaudeText({
       model: getModelForTask("branch"),
@@ -479,18 +506,26 @@ async function buildBranchChildrenWithClaude(
         "Output must be valid minified JSON only.",
         "No markdown, no prose, no code fences.",
         '{"children":[{"index":1,"distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
-        "Exactly 3 children."
+        `Exactly ${normalizedChildCount} children.`
       ].join(" "),
       messages: [{ role: "user", content: `Parent:${parentTitle}\nQuestion:${userQuestion || ""}` }],
-      maxTokens: 280
+      maxTokens: retryMaxTokens
     });
     parsed = await parseOrCoerceJson(retryText, branchSchema, "branch");
-    normalizedChildren = normalizeBranchChildren(parsed);
+    normalizedChildren = normalizeBranchChildren(parsed, normalizedChildCount);
   }
   if (!normalizedChildren) {
     console.warn("[branch] content fallback: invalid JSON schema from provider");
     return markContentFallback(
-      buildBranchChildrenFallback(parentNodeId, parentTitle, parentBranchLabel, userQuestion, lineage, parentContext),
+      buildBranchChildrenFallback(
+        parentNodeId,
+        parentTitle,
+        parentBranchLabel,
+        userQuestion,
+        lineage,
+        parentContext,
+        normalizedChildCount
+      ),
       "invalid_branch_json_schema"
     );
   }
@@ -498,7 +533,7 @@ async function buildBranchChildrenWithClaude(
   const nodes = [];
   const edges = [];
   for (const child of normalizedChildren) {
-    const idx = clampInt(child.index, 1, 3, 1);
+    const idx = clampInt(child.index, 1, normalizedChildCount, 1);
     const id = `${base}_${idx}`;
     const childLabel = `${baseLabel}${idx}`;
     nodes.push({
@@ -660,7 +695,15 @@ function buildInitialGraphFallback(eventText, options) {
   return { nodes, edges };
 }
 
-function buildBranchChildrenFallback(parentNodeId, parentTitle, parentBranchLabel, userQuestion, lineage = [], parentContext = {}) {
+function buildBranchChildrenFallback(
+  parentNodeId,
+  parentTitle,
+  parentBranchLabel,
+  userQuestion,
+  lineage = [],
+  parentContext = {},
+  childCount = 3
+) {
   const children = [];
   const edges = [];
   const base = buildBranchBase(parentNodeId, userQuestion, lineage);
@@ -673,9 +716,12 @@ function buildBranchChildrenFallback(parentNodeId, parentTitle, parentBranchLabe
     { s: "2", distance: "moderate", delta: "Adjust strategy and pace", confidence: 0.66, line: "Keep direction, but rebalance resources and execution tempo." },
     { s: "3", distance: "radical", delta: "Reframe the stage goal", confidence: 0.58, line: "Allow goal reframing to unlock a higher-upside path." }
   ];
-  for (const variant of variants) {
-    const id = `${base}_${variant.s}`;
-    const childLabel = `${baseLabel}${variant.s}`;
+  const normalizedChildCount = clampInt(childCount, 1, 8, 3);
+  for (let idx = 1; idx <= normalizedChildCount; idx += 1) {
+    const variant = variants[(idx - 1) % variants.length];
+    const indexText = String(idx);
+    const id = `${base}_${indexText}`;
+    const childLabel = `${baseLabel}${indexText}`;
     children.push({
       id,
       type: "world",
@@ -683,7 +729,7 @@ function buildBranchChildrenFallback(parentNodeId, parentTitle, parentBranchLabe
       delta: variant.delta,
       one_liner: `${variant.line} Inherited anchor: ${parentAnchor} (question: ${questionHint})`,
       tags: [variant.distance, "branched"],
-      confidence: variant.confidence,
+      confidence: clampNumber(variant.confidence - Math.floor((idx - 1) / variants.length) * 0.03, 0.42, 0.84, 0.62),
       parentId: parentNodeId,
       collapsed: false,
       data: {
@@ -890,7 +936,7 @@ function normalizePlanWorlds(parsed) {
   return normalized.length === 3 ? normalized : null;
 }
 
-function normalizeBranchChildren(parsed) {
+function normalizeBranchChildren(parsed, childCount = 3) {
   if (!parsed || typeof parsed !== "object") return null;
   let children = null;
   if (Array.isArray(parsed.children)) {
@@ -903,14 +949,15 @@ function normalizeBranchChildren(parsed) {
     children = parsed.worlds;
   }
   if (!Array.isArray(children) || children.length === 0) return null;
-  const normalized = children.slice(0, 3).map((child, idx) => ({
+  const normalizedChildCount = clampInt(childCount, 1, 8, 3);
+  const normalized = children.slice(0, normalizedChildCount).map((child, idx) => ({
     ...(child || {}),
-    index: clampInt(child?.index, 1, 3, idx + 1),
+    index: clampInt(child?.index, 1, normalizedChildCount, idx + 1),
     distance: normalizeDistance(child?.distance)
   }));
-  if (normalized.length < 3) {
+  if (normalized.length < normalizedChildCount) {
     const last = normalized[normalized.length - 1] || {};
-    while (normalized.length < 3) {
+    while (normalized.length < normalizedChildCount) {
       normalized.push({ ...last, index: normalized.length + 1 });
     }
   }

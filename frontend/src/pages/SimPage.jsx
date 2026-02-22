@@ -31,6 +31,8 @@ export default function SimPage() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [branchInput, setBranchInput] = useState("");
+  const [branchChildCount, setBranchChildCount] = useState(3);
+  const [branchChildCountByNode, setBranchChildCountByNode] = useState({});
   const [branchLoading, setBranchLoading] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [branchModalOpen, setBranchModalOpen] = useState(false);
@@ -60,6 +62,8 @@ export default function SimPage() {
         setChatByKey({});
         setChatInput("");
         setBranchInput("");
+        setBranchChildCount(3);
+        setBranchChildCountByNode({});
         setBranchModalOpen(false);
         setBranchTargetId(null);
         setCallsUsed((x) => x + 1);
@@ -83,6 +87,8 @@ export default function SimPage() {
       setChatByKey({});
       setChatInput("");
       setBranchInput("");
+      setBranchChildCount(3);
+      setBranchChildCountByNode({});
       setBranchModalOpen(false);
       setBranchTargetId(null);
       setCallsUsed((x) => x + 1);
@@ -179,6 +185,7 @@ export default function SimPage() {
 
   async function handleBranchGenerate() {
     if (!branchTargetNode || branchTargetNode.type !== "world" || !branchInput.trim() || !eventHash) return;
+    const normalizedChildCount = normalizeChildCount(branchChildCount);
     setBranchLoading(true);
     try {
       const lineage = buildLineage(graph.nodes, branchTargetNode.id);
@@ -191,12 +198,18 @@ export default function SimPage() {
         parentDelta: branchTargetNode.delta || "",
         parentTags: Array.isArray(branchTargetNode.tags) ? branchTargetNode.tags : [],
         userQuestion: branchInput.trim(),
+        childCount: normalizedChildCount,
         lineage,
         useCache: form.useCache
       });
       setGraph((prev) => mergeGraph(prev, result, branchTargetNode.id));
+      setBranchChildCountByNode((prev) => ({
+        ...prev,
+        [branchTargetNode.id]: normalizedChildCount
+      }));
       setCallsUsed((x) => x + 1);
       setBranchInput("");
+      setBranchChildCount(normalizedChildCount);
       setBranchModalOpen(false);
       toast(result.meta.cache === "hit" ? "Branch loaded from cache" : "Child worlds generated", "success");
     } catch (error) {
@@ -222,6 +235,7 @@ export default function SimPage() {
     setBranchTargetId(nodeId);
     setBranchModalOpen(true);
     setBranchInput("");
+    setBranchChildCount(branchChildCountByNode[nodeId] ?? 3);
   }
 
   function handleExport() {
@@ -250,6 +264,62 @@ export default function SimPage() {
     toast("Summary copied", "success");
   }
 
+  async function handleOpenLineageWindow() {
+    if (!selectedNode) return;
+    const win = window.open("", "_blank", "noopener,noreferrer,width=920,height=700");
+    if (!win) {
+      toast("Popup blocked. Please allow popups for this site.", "warn");
+      return;
+    }
+    win.document.write("<title>EventSim Lineage</title><body><p>Loading lineage...</p></body>");
+    win.document.close();
+
+    const lineage = buildLineage(graph.nodes, selectedNode.id);
+    const detailsByNodeId = {};
+    for (const item of lineage) {
+      detailsByNodeId[item.id] = expanded[item.id] || null;
+    }
+
+    if (eventHash) {
+      try {
+        const missing = lineage.filter((item) => !detailsByNodeId[item.id]);
+        const responses = await Promise.all(
+          missing.map(async (item) => {
+            const currentNode = graph.nodes.find((n) => n.id === item.id);
+            if (!currentNode) return null;
+            const result = await fetchExpand({
+              eventHash,
+              nodeId: item.id,
+              nodeTitle: currentNode.title || "",
+              nodeType: currentNode.type || "",
+              nodeOneLiner: currentNode.one_liner || "",
+              nodeDelta: currentNode.delta || "",
+              nodeTags: Array.isArray(currentNode.tags) ? currentNode.tags : [],
+              parentId: currentNode.parentId || null,
+              lineage: buildLineage(graph.nodes, item.id),
+              useCache: form.useCache
+            });
+            return { nodeId: item.id, details: result.details || null };
+          })
+        );
+        const loaded = {};
+        for (const item of responses) {
+          if (!item) continue;
+          loaded[item.nodeId] = item.details;
+          detailsByNodeId[item.nodeId] = item.details;
+        }
+        if (Object.keys(loaded).length > 0) {
+          setExpanded((prev) => ({ ...prev, ...loaded }));
+          setCallsUsed((x) => x + Object.keys(loaded).length);
+        }
+      } catch (error) {
+        toast(`Lineage details partial: ${error.message}`, "warn");
+      }
+    }
+
+    renderLineageWindow(win, lineage, detailsByNodeId);
+  }
+
   function toast(message, kind = "info") {
     const id = `${Date.now()}_${Math.random()}`;
     setToasts((prev) => [...prev, { id, message, kind }].slice(-4));
@@ -272,6 +342,7 @@ export default function SimPage() {
           loading={loadingExpand}
           onToggleCollapse={() => handleToggleCollapse()}
           onCopySummary={handleCopySummary}
+          onOpenLineageWindow={handleOpenLineageWindow}
         />
       </div>
 
@@ -291,7 +362,9 @@ export default function SimPage() {
         open={branchModalOpen}
         node={branchTargetNode}
         input={branchInput}
+        childCount={branchChildCount}
         onInputChange={setBranchInput}
+        onChildCountChange={setBranchChildCount}
         onGenerate={handleBranchGenerate}
         onClose={() => setBranchModalOpen(false)}
         loading={branchLoading}
@@ -306,7 +379,13 @@ function buildLineage(nodes, nodeId) {
   const chain = [];
   let current = map.get(nodeId);
   while (current) {
-    chain.push({ id: current.id, title: current.title, one_liner: current.one_liner });
+    chain.push({
+      id: current.id,
+      title: current.title,
+      one_liner: current.one_liner,
+      delta: current.delta,
+      tags: Array.isArray(current.tags) ? current.tags : []
+    });
     if (!current.parentId) break;
     current = map.get(current.parentId);
   }
@@ -334,4 +413,137 @@ function mergeGraph(current, branchPayload, parentNodeId) {
     nodes: [...nodesById.values()],
     edges: [...edgesById.values()]
   };
+}
+
+function normalizeChildCount(value) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return 3;
+  return Math.max(1, Math.min(8, parsed));
+}
+
+function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
+  const safeLineage = Array.isArray(lineage) ? lineage : [];
+  const escapedData = JSON.stringify({ lineage: safeLineage, detailsByNodeId }).replace(/</g, "\\u003c");
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EventSim Lineage</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --ink: #0f172a;
+      --muted: #475569;
+      --line: #dbeafe;
+      --accent: #0e7490;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at 8% 0%, #e0f2fe 0, transparent 35%), var(--bg);
+      padding: 20px;
+    }
+    h2 { margin: 0 0 8px; }
+    p { margin: 0 0 14px; color: var(--muted); }
+    .lineage-wrap { display: grid; gap: 10px; margin-bottom: 18px; }
+    .lineage-node {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--card);
+      padding: 10px 12px;
+      cursor: pointer;
+    }
+    .lineage-node.active { border-color: var(--accent); box-shadow: 0 0 0 2px #bae6fd; }
+    .meta { color: var(--muted); font-size: 13px; margin-top: 6px; }
+    .detail {
+      border: 1px solid #cbd5e1;
+      border-radius: 14px;
+      background: #fff;
+      padding: 14px;
+    }
+    .detail h3 { margin: 0 0 8px; }
+    .detail ul { margin: 8px 0; padding-left: 20px; }
+    .chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .chip {
+      font-size: 12px;
+      border-radius: 999px;
+      padding: 3px 8px;
+      border: 1px solid #bae6fd;
+      background: #f0f9ff;
+    }
+  </style>
+</head>
+<body>
+  <h2>Lineage Chain</h2>
+  <p>Click any node to view details.</p>
+  <div id="lineage" class="lineage-wrap"></div>
+  <div id="detail" class="detail"></div>
+  <script>
+    const state = ${escapedData};
+    const lineageEl = document.getElementById("lineage");
+    const detailEl = document.getElementById("detail");
+    let activeId = state.lineage.length ? state.lineage[state.lineage.length - 1].id : null;
+
+    function renderList() {
+      lineageEl.innerHTML = "";
+      for (const node of state.lineage) {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "lineage-node" + (node.id === activeId ? " active" : "");
+        item.innerHTML =
+          "<strong>" + escapeHtml(node.title || node.id) + "</strong>" +
+          '<div class="meta">Node ID: ' + escapeHtml(node.id) + "</div>" +
+          '<div class="meta">' + escapeHtml(node.one_liner || "No one-liner") + "</div>";
+        item.addEventListener("click", () => {
+          activeId = node.id;
+          renderList();
+          renderDetail();
+        });
+        lineageEl.appendChild(item);
+      }
+    }
+
+    function renderDetail() {
+      const node = state.lineage.find((x) => x.id === activeId) || state.lineage[0];
+      if (!node) {
+        detailEl.innerHTML = "<p>No lineage node found.</p>";
+        return;
+      }
+      const details = state.detailsByNodeId[node.id] || null;
+      const consequences = Array.isArray(details?.consequences) ? details.consequences : [];
+      const tags = Array.isArray(node.tags) ? node.tags : [];
+      detailEl.innerHTML =
+        "<h3>" + escapeHtml(node.title || node.id) + "</h3>" +
+        "<p><strong>One-liner:</strong> " + escapeHtml(node.one_liner || "-") + "</p>" +
+        "<p><strong>Why it changes:</strong> " + escapeHtml(details?.why_it_changes || node.delta || "Not expanded yet") + "</p>" +
+        "<p><strong>Next question:</strong> " + escapeHtml(details?.next_question || "-") + "</p>" +
+        (consequences.length
+          ? "<h4>Consequences</h4><ul>" + consequences.map((item) => "<li>" + escapeHtml(item) + "</li>").join("") + "</ul>"
+          : "<p>No expanded consequences yet.</p>") +
+        (tags.length
+          ? '<div class="chip-row">' + tags.map((tag) => '<span class="chip">' + escapeHtml(tag) + "</span>").join("") + "</div>"
+          : "");
+    }
+
+    function escapeHtml(text) {
+      return String(text || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    renderList();
+    renderDetail();
+  </script>
+</body>
+</html>`;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
 }

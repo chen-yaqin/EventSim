@@ -1,4 +1,14 @@
-export default function BranchModal({ open, node, input, onInputChange, onGenerate, onClose, loading }) {
+export default function BranchModal({
+  open,
+  node,
+  input,
+  childCount,
+  onInputChange,
+  onChildCountChange,
+  onGenerate,
+  onClose,
+  loading
+}) {
   if (!open) return null;
 
   return (
@@ -6,7 +16,20 @@ export default function BranchModal({ open, node, input, onInputChange, onGenera
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3>Branch This Node</h3>
         <p className="muted">Selected: {node?.title || "-"}</p>
-        <p className="muted">Ask a follow-up and generate 3 child worlds (1/2/3).</p>
+        <p className="muted">Ask a follow-up and generate N child worlds.</p>
+        <label className="muted" htmlFor="branch-child-count">
+          Child count (1-8)
+        </label>
+        <input
+          id="branch-child-count"
+          className="count-input"
+          type="number"
+          min={1}
+          max={8}
+          step={1}
+          value={childCount}
+          onChange={(e) => onChildCountChange(e.target.value)}
+        />
         <textarea
           value={input}
           onChange={(e) => onInputChange(e.target.value)}

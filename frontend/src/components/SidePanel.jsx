@@ -3,7 +3,8 @@ export default function SidePanel({
   details,
   loading,
   onToggleCollapse,
-  onCopySummary
+  onCopySummary,
+  onOpenLineageWindow
 }) {
   if (!selectedNode) {
     return (
@@ -56,6 +57,9 @@ export default function SidePanel({
         </button>
         <button className="btn btn-soft" onClick={onCopySummary}>
           Copy Summary
+        </button>
+        <button className="btn btn-soft" onClick={onOpenLineageWindow}>
+          Open Lineage Window
         </button>
       </div>
     </aside>
