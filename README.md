@@ -1,49 +1,153 @@
 # EventSim
 
-EventSim is an interactive counterfactual simulation app designed for hackathon demos and rapid decision exploration.
-It turns one event into a branching world graph, then lets users inspect each branch, chat from role perspectives, compare branches side-by-side, and continue branching deeper.
+**Explore decisions as branching futures.**
 
-## Introduction
+EventSim is a hackathon-ready interactive simulation tool that turns one event into multiple possible futures, compares outcomes, and helps users reason through tradeoffs from different role perspectives.
 
-Most decision tools are linear. EventSim is intentionally non-linear:
+## Why EventSim
 
-- Start with one event.
-- Generate multiple possible worlds (`minimal`, `moderate`, `radical`).
-- Expand node details (`consequences`, `why_it_changes`, `next_question`, `risk_flags`).
-- Continue branching from any world node.
-- Compare two branches using `Pros / Cons / Risks`.
-- Use role-based chat (`You-Now`, `You-in-5-Years`, `Neutral Advisor`, plus `Custom Role`) to test reasoning from different lenses.
+Most decision tools are linear. Real decisions are not.
 
-This project is built for clear live demos:
+EventSim helps you answer:
 
-- Fast startup
-- Deterministic fallback behavior when model calls fail
-- Cache-aware API flow
-- Visual graph interaction with branch/depth control
+- What happens if we choose Path A vs Path B?
+- Which branch is safer, bolder, or more robust?
+- How does this look from different stakeholder roles?
+- What should we test next before committing?
 
-## What Is Implemented
+## What Makes It Demo-Strong
 
-Current MVP includes:
+- Fast graph generation from one event prompt
+- Click-to-expand branch intelligence (`consequences`, `why`, `risk`, `next question`)
+- Double-click branching for deeper what-if exploration
+- Two-branch compare (`Pros / Cons / Risks`) with exportable conclusion
+- Role chat with both preset roles and **Custom Role**
+- Lineage timeline window for explainable branch history
+- Built-in fallback + cache for reliable live demos
 
-- Graph generation from event input (`1 root + 3 world nodes`)
-- Node detail expansion (lazy loaded)
-- Branch generation from selected world nodes (custom child count)
-- Role chat (preset roles + custom role)
-- Branch compare modal with two-column `Pros / Cons / Risks`
-- Lineage window with timeline, breadcrumb, and click-to-open details
-- Node collapse/expand
-- Demo mode (`/api/demo/:id`)
-- Export graph JSON
-- Backend cache + rate limiting + restricted-content guardrails
+## Core Features
 
-## Tech Stack
+- **Counterfactual Graph**: root + world nodes with `minimal / moderate / radical` divergence
+- **Lazy Detail Expansion**: load analysis only when needed
+- **Branching Engine**: configurable child count per node
+- **Role Chat**:
+  - `You-Now`
+  - `You-in-5-Years`
+  - `Neutral Advisor`
+  - `Custom Role` (name + style)
+- **Branch Compare**: side-by-side cards for `Pros / Cons / Risks`
+- **Lineage Window**: timeline steps, breadcrumb, detail modal
+- **Export**: graph JSON + compare conclusion text
 
-- Frontend: React, Vite, React Flow, React Router
-- Backend: Node.js, Express
-- Model provider: Anthropic API (with fallback)
-- Cache: file-based JSON in `backend/cache/`
+## Screens and Flow
 
-## Project Structure
+1. Enter an event in `/sim`
+2. Generate graph
+3. Single-click a node to inspect details
+4. Double-click a world node to branch
+5. Select two nodes and run compare
+6. Use role chat to pressure-test decisions
+7. Open lineage window to present branch history
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 18+ (20+ recommended)
+- npm 9+
+
+### 1) Configure Backend Environment
+
+Create `backend/.env` from `backend/.env.example`.
+
+```bash
+ANTHROPIC_API_KEY=your_key_here
+ANTHROPIC_VERSION=2023-06-01
+ANTHROPIC_API_URL=https://api.anthropic.com/v1/messages
+
+ANTHROPIC_MODEL=claude-3-5-haiku-latest
+ANTHROPIC_MODEL_BASIC=claude-3-5-haiku-latest
+ANTHROPIC_MODEL_CHATBOT=claude-3-5-sonnet-latest
+ANTHROPIC_MODEL_BRANCH=claude-3-5-sonnet-latest
+```
+
+If no API key is set, fallback logic still supports demo usage.
+
+### 2) Run Backend
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+Default: `http://localhost:8787`
+
+### 3) Run Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Default: `http://localhost:5173`
+
+Optional frontend API override:
+
+```powershell
+$env:VITE_API_URL="http://localhost:8787"
+npm run dev
+```
+
+### 4) Open Routes
+
+- Home: `/`
+- Simulator: `/sim`
+- Demo list: `/demo`
+
+## User Instructions
+
+### Simulator Basics
+
+- Enter your event and click **Generate Graph**
+- **Single click** node: select + load details
+- **Double click** world node: open branch modal
+- Use **Collapse/Expand** to manage tree visibility
+
+### Branch Compare
+
+- Select two nodes using `Compare`
+- Click **Branch Compare**
+- Review side-by-side:
+  - Pros
+  - Cons
+  - Risks
+- Export summary with **Export Conclusion**
+
+### Role Chat
+
+- Open **Role Chat**
+- Choose preset role or **Custom Role**
+- For custom role, provide:
+  - role name
+  - role style
+- Ask scenario-specific questions tied to selected node
+
+### Lineage Window
+
+- Open from side panel
+- Follow timeline sequence and breadcrumb
+- Click steps to inspect detail modal
+
+## Architecture
+
+- Frontend: React + Vite + React Flow + React Router
+- Backend: Node.js + Express
+- Provider: Anthropic API + deterministic fallback
+- Cache: JSON files in `backend/cache`
+
+## Repository Structure
 
 ```text
 EventSim/
@@ -63,162 +167,31 @@ EventSim/
   assets/
 ```
 
-## API Overview
+## Reliability and Safety
 
-- `POST /api/plan` - Generate initial graph
-- `POST /api/expand` - Expand one node's details
-- `POST /api/branch` - Generate child worlds from a node
-- `POST /api/chat` - Chat from a role perspective (supports custom role)
-- `GET /api/demo/:id` - Load demo graph
-- `GET /api/health` - Health check
-
-## Instructions
-
-### 1. Prerequisites
-
-- Node.js 18+ (20+ recommended)
-- npm 9+
-
-### 2. Environment Setup
-
-Create `backend/.env` from `backend/.env.example`.
-
-Example:
-
-```bash
-ANTHROPIC_API_KEY=your_key_here
-ANTHROPIC_VERSION=2023-06-01
-ANTHROPIC_API_URL=https://api.anthropic.com/v1/messages
-
-ANTHROPIC_MODEL=claude-3-5-haiku-latest
-ANTHROPIC_MODEL_BASIC=claude-3-5-haiku-latest
-ANTHROPIC_MODEL_CHATBOT=claude-3-5-sonnet-latest
-ANTHROPIC_MODEL_BRANCH=claude-3-5-sonnet-latest
-```
-
-If `ANTHROPIC_API_KEY` is missing, backend fallback logic still allows demo usage.
-
-### 3. Run Backend
-
-```bash
-cd backend
-npm install
-npm run dev
-```
-
-Default backend URL: `http://localhost:8787`
-
-Optional custom port (PowerShell):
-
-```powershell
-$env:PORT=8788
-npm run dev
-```
-
-### 4. Run Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Default frontend URL: `http://localhost:5173`
-
-Optional API URL override (PowerShell):
-
-```powershell
-$env:VITE_API_URL="http://localhost:8787"
-npm run dev
-```
-
-### 5. Open App Routes
-
-- Home: `/`
-- Simulator: `/sim`
-- Demo list: `/demo`
-
-## Recommended Demo Flow
-
-1. Open `/demo` and load a preset (quick proof of flow).
-2. Open `/sim`, enter an event, and click `Generate Graph`.
-3. Single-click a node to select and load details.
-4. Double-click a world node to open branch modal and generate child worlds.
-5. Select two nodes (`Compare`), then click `Branch Compare`.
-6. Use `Role Chat` with preset roles or `Custom Role`.
-7. Open `Lineage Window` to show timeline and branch history.
-
-## API Examples
-
-### Generate Plan
-
-```bash
-curl -X POST http://localhost:8787/api/plan \
-  -H "Content-Type: application/json" \
-  -d "{\"eventText\":\"I have two job offers and need to choose.\",\"options\":{\"timeframe\":\"1 year\",\"stakes\":\"high\",\"goal\":\"growth\"}}"
-```
-
-### Expand Node
-
-```bash
-curl -X POST http://localhost:8787/api/expand \
-  -H "Content-Type: application/json" \
-  -d "{\"eventHash\":\"<from-plan-meta>\",\"nodeId\":\"world_a\"}"
-```
-
-### Branch Node
-
-```bash
-curl -X POST http://localhost:8787/api/branch \
-  -H "Content-Type: application/json" \
-  -d "{\"eventHash\":\"<from-plan-meta>\",\"parentNodeId\":\"world_a\",\"parentTitle\":\"World A\",\"userQuestion\":\"What if we prioritize retention over speed?\",\"childCount\":4}"
-```
-
-### Chat (Preset Role)
-
-```bash
-curl -X POST http://localhost:8787/api/chat \
-  -H "Content-Type: application/json" \
-  -d "{\"eventHash\":\"<from-plan-meta>\",\"nodeId\":\"world_a\",\"nodeTitle\":\"World A\",\"roleId\":\"you_now\",\"message\":\"What should I do first?\"}"
-```
-
-### Chat (Custom Role)
-
-```bash
-curl -X POST http://localhost:8787/api/chat \
-  -H "Content-Type: application/json" \
-  -d "{\"eventHash\":\"<from-plan-meta>\",\"nodeId\":\"world_a\",\"nodeTitle\":\"World A\",\"roleId\":\"custom\",\"customRoleTitle\":\"Product Manager\",\"customRoleStyle\":\"user impact and scope-risk tradeoffs\",\"message\":\"What is the next best step?\"}"
-```
-
-## UX Notes
-
-- Single click node: select + fetch details (if not cached)
-- Double click world node: open branch modal
-- Node tags are color-coded by semantic polarity (risk/benefit/action)
-
-## Safety and Boundaries
-
-EventSim is for exploration and reflection, not professional advice.
-Restricted categories (e.g., self-harm, medical diagnosis, legal advice requests) are blocked by backend rules.
+- Rate-limited endpoints for stability
+- File cache for repeatable runs
+- Restricted-content guardrails (e.g. self-harm, medical/legal advice categories)
+- Fallback generation path for provider failures
 
 ## Troubleshooting
 
-### Node details are not loading
+### Graph generated but no detail expansion
 
-- Confirm backend is running on expected port.
-- Ensure `/api/plan` was called first (valid `eventHash` required).
+- Ensure backend is running and reachable from frontend
+- Ensure a valid `eventHash` exists (generate graph first)
 
-### Chat returns invalid role error
+### Chat custom role not working
 
-- Use one of: `you_now`, `you_5y`, `neutral_advisor`, `custom`.
-- If `roleId=custom`, provide non-empty `customRoleTitle`.
+- `roleId` must be `custom`
+- `customRoleTitle` cannot be empty
 
-### Old behavior appears after updates
+### Output feels stale
 
-- Restart backend and frontend dev servers.
-- Cache is file-based (`backend/cache`), so prompt-version changes are used to bust stale responses.
+- Restart backend/frontend
+- Cache is file-based (`backend/cache`)
 
-## Docs
+## Documentation
 
 - `docs/ARCHITECTURE.md`
 - `docs/DEMO.md`
