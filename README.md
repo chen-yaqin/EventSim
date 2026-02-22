@@ -101,7 +101,8 @@ npm run dev
 
 Default: `http://localhost:5173`
 
-Optional frontend API override:
+Frontend dev now defaults API to `http://localhost:8787`.
+Optional override:
 
 ```powershell
 $env:VITE_API_URL="http://localhost:8787"

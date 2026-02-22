@@ -389,6 +389,15 @@ if (fs.existsSync(FRONTEND_DIST_DIR)) {
   app.get("/", (_req, res) => {
     res.sendFile(path.join(FRONTEND_DIST_DIR, "index.html"));
   });
+} else {
+  app.get("/", (_req, res) => {
+    res.json({
+      ok: true,
+      service: "eventsim-backend",
+      message: "Backend is running. Frontend dist not found. Start frontend dev server at http://localhost:5173.",
+      health: "/api/health"
+    });
+  });
 }
 
 app.listen(PORT, () => {

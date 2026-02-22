@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL || window.location.origin;
+const BASE_URL = resolveBaseUrl();
 const RUNTIME_CONFIG_KEY = "eventsim.runtime_config.v1";
 let runtimeHeaders = {};
 
@@ -143,4 +143,11 @@ function buildRuntimeHeaders(config) {
 function putHeader(headers, name, value) {
   const text = String(value || "").trim();
   if (text) headers[name] = text;
+}
+
+function resolveBaseUrl() {
+  const fromEnv = String(import.meta.env.VITE_API_URL || "").trim();
+  if (fromEnv) return fromEnv.replace(/\/+$/, "");
+  if (import.meta.env.DEV) return "http://localhost:8787";
+  return window.location.origin;
 }
