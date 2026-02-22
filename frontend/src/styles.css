@@ -454,6 +454,14 @@ select {
   background: #f8fbff;
 }
 
+.compare-col h4 {
+  margin: 10px 0 6px;
+}
+
+.compare-col p {
+  margin: 0 0 8px;
+}
+
 .toast-stack {
   position: fixed;
   bottom: 16px;

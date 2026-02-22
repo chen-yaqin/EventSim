@@ -60,22 +60,60 @@ export default function WorldNode({ data, selected }) {
 }
 
 function chipTone(tag) {
-  const value = String(tag || "").toLowerCase();
-  if (
-    value.includes("risk") ||
-    value.includes("uncertain") ||
-    value.includes("radical") ||
-    value.includes("loss")
-  ) {
-    return "chip-risk";
+  const value = String(tag || "").toLowerCase().trim();
+  const tokens = value.split(/[^a-z0-9]+/).filter(Boolean);
+  if (!tokens.length) return "chip-action";
+
+  const negativeLexicon = new Set([
+    "risk",
+    "risky",
+    "high",
+    "uncertain",
+    "uncertainty",
+    "radical",
+    "loss",
+    "failure",
+    "fragile",
+    "debt",
+    "overrun",
+    "delay",
+    "conflict",
+    "burnout",
+    "churn",
+    "instability",
+    "blocked",
+    "blocker"
+  ]);
+  const positiveLexicon = new Set([
+    "mitigate",
+    "mitigation",
+    "minimal",
+    "safe",
+    "stable",
+    "stability",
+    "benefit",
+    "upside",
+    "growth",
+    "opportunity",
+    "resilient",
+    "robust",
+    "alignment",
+    "efficient",
+    "clarity",
+    "mvp"
+  ]);
+
+  let negativeScore = 0;
+  let positiveScore = 0;
+  for (const token of tokens) {
+    if (negativeLexicon.has(token)) negativeScore += 1;
+    if (positiveLexicon.has(token)) positiveScore += 1;
   }
-  if (
-    value.includes("benefit") ||
-    value.includes("upside") ||
-    value.includes("growth") ||
-    value.includes("opportunity")
-  ) {
-    return "chip-benefit";
-  }
+
+  if (value.includes("low-risk") || value.includes("low_risk")) positiveScore += 2;
+  if (value.includes("high-risk") || value.includes("high_risk")) negativeScore += 2;
+
+  if (negativeScore > positiveScore) return "chip-risk";
+  if (positiveScore > negativeScore) return "chip-benefit";
   return "chip-action";
 }

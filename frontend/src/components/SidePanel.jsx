@@ -19,8 +19,10 @@ export default function SidePanel({
 
   return (
     <aside className="card side-panel">
-      <h3>{selectedNode.title}</h3>
-      <p className="muted">{selectedNode.one_liner}</p>
+      <h3>🧭 {selectedNode.title}</h3>
+      <p className="muted">
+        <strong>Focus:</strong> <em>{selectedNode.one_liner}</em>
+      </p>
       <div className="chip-row">
         {(selectedNode.tags || []).map((tag) => (
           <span key={tag} className="chip">
@@ -38,16 +40,18 @@ export default function SidePanel({
         </div>
       ) : details ? (
         <>
-          <h4>Consequences</h4>
+          <h4>✨ Key Effects</h4>
           <ul>
-            {details.consequences?.map((item) => (
+            {(details.consequences || []).slice(0, 2).map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
-          <h4>Why It Changes</h4>
-          <p>{details.why_it_changes}</p>
-          <h4>Next Question</h4>
-          <p>{details.next_question}</p>
+          <h4>⚠️ Risks</h4>
+          <p>{(details.risk_flags || []).join(", ") || "uncertainty"}</p>
+          <h4>🎯 Next</h4>
+          <p>
+            <strong>{details.next_question || "What should we test next?"}</strong>
+          </p>
         </>
       ) : (
         <p>No expanded details yet.</p>

@@ -61,7 +61,7 @@ app.post("/api/plan", async (req, res) => {
   }
 
   const eventHash = hashText(eventText.trim().toLowerCase());
-  const promptVersion = "v7";
+  const promptVersion = "v8";
   const key = hashText(JSON.stringify({ t: eventText, o: options, p: promptVersion }));
   const cacheFile = path.join(CACHE_DIR, `plan_${key}.json`);
   if (useCache && fs.existsSync(cacheFile)) {
@@ -123,7 +123,7 @@ app.post("/api/expand", async (req, res) => {
   } = req.body || {};
   if (!eventHash || !nodeId) return res.status(400).json({ error: "eventHash and nodeId are required" });
 
-  const promptVersion = "v8";
+  const promptVersion = "v9";
   const key = hashText(
     JSON.stringify({
       eventHash,
@@ -204,7 +204,7 @@ app.post("/api/branch", async (req, res) => {
   }
 
   const normalizedChildCount = clampInt(childCount, 1, 8, 3);
-  const promptVersion = "v6";
+  const promptVersion = "v7";
   const key = hashText(
     JSON.stringify({
       eventHash,
@@ -348,7 +348,9 @@ async function buildInitialGraphWithClaude(eventText, options, rootTitle = "") {
     "You are EventSim planner.",
     "Return JSON only:",
     '{"worlds":[{"suffix":"A","distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
-    "Exactly 3 worlds with suffix A/B/C."
+    "Exactly 3 worlds with suffix A/B/C.",
+    "Keep text concise: title <= 4 words, delta <= 8 words, one_liner <= 14 words.",
+    "Avoid filler and hedging language."
   ].join(" ");
   const text = await callClaudeText({
     model: getModelForTask("basic"),
@@ -368,7 +370,8 @@ async function buildInitialGraphWithClaude(eventText, options, rootTitle = "") {
         "No markdown, no prose, no code fences.",
         "Required schema:",
         '{"worlds":[{"suffix":"A","distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
-        "Exactly 3 items."
+        "Exactly 3 items.",
+        "Concise text only: title <= 4 words, delta <= 8 words, one_liner <= 14 words."
       ].join(" "),
       messages: [{ role: "user", content: `Event:${eventText}\nTimeframe:${timeframe}\nStakes:${stakes}\nGoal:${goal}` }],
       maxTokens: 420
@@ -428,7 +431,11 @@ async function buildNodeDetailsWithClaude(nodeId, nodeContext = {}) {
       "You are EventSim node analyst.",
       "Use node context to produce specific, non-generic analysis.",
       "Do not mention lack of context if context is provided.",
-      "Return JSON only with consequences(3), why_it_changes, next_question, risk_flags(max2). Keep concise."
+      "Return JSON only with consequences(3), why_it_changes, next_question, risk_flags(max2).",
+      "Concise constraints:",
+      "Each consequence <= 12 words.",
+      "why_it_changes <= 20 words.",
+      "next_question <= 14 words."
     ].join(" "),
     messages: [
       {
@@ -450,14 +457,14 @@ async function buildNodeDetailsWithClaude(nodeId, nodeContext = {}) {
       "Downstream priorities may reorder",
       "Execution constraints can change",
       "Second-order effects can appear quickly"
-    ]),
+    ]).map((item) => limitWords(item, 12)),
     why_it_changes:
       typeof parsed.why_it_changes === "string"
-        ? parsed.why_it_changes
+        ? limitWords(parsed.why_it_changes, 20)
         : "Assumption changes alter feasible actions and expected outcomes.",
     next_question:
       typeof parsed.next_question === "string"
-        ? parsed.next_question
+        ? limitWords(parsed.next_question, 14)
         : "What small test can validate this branch in the next 7 days?",
     risk_flags: normalizeStringArray(parsed.risk_flags, 2, ["tradeoff"]),
     __contentFallback: false,
@@ -492,7 +499,7 @@ async function buildBranchChildrenWithClaude(
       `Exactly ${normalizedChildCount} children with index ${indexHint}.`,
       "Use both lineage and question.",
       "Children must be grounded in parent context and evolve from parent assumptions.",
-      "Keep each one_liner under 16 words."
+      "Concise constraints: title <= 5 words, delta <= 8 words, one_liner <= 14 words."
     ].join(" "),
     messages: [
       {
@@ -513,7 +520,8 @@ async function buildBranchChildrenWithClaude(
         "Output must be valid minified JSON only.",
         "No markdown, no prose, no code fences.",
         '{"children":[{"index":1,"distance":"minimal|moderate|radical","title":"...","delta":"...","one_liner":"...","tags":["..."],"confidence":0.0}]}',
-        `Exactly ${normalizedChildCount} children.`
+        `Exactly ${normalizedChildCount} children.`,
+        "Concise constraints: title <= 5 words, delta <= 8 words, one_liner <= 14 words."
       ].join(" "),
       messages: [{ role: "user", content: `Parent:${parentTitle}\nQuestion:${userQuestion || ""}` }],
       maxTokens: retryMaxTokens

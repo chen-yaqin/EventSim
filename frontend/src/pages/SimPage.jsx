@@ -114,9 +114,6 @@ export default function SimPage() {
   async function handleNodeClick(_evt, node) {
     setSelectedId(node.id);
     setBranchInput("");
-    if (node.id !== "root") {
-      openBranchModalForNode(node.id);
-    }
     if (expanded[node.id] || !eventHash) return;
 
     setLoadingExpand(true);
@@ -143,6 +140,11 @@ export default function SimPage() {
     } finally {
       setLoadingExpand(false);
     }
+  }
+
+  function handleNodeDoubleClick(_evt, node) {
+    if (!node?.id || node.id === "root") return;
+    openBranchModalForNode(node.id);
   }
 
   async function handleSendChat() {
@@ -428,7 +430,13 @@ export default function SimPage() {
       <div className="workspace">
         <div className="left">
           <ScenarioForm form={form} onChange={setForm} onGenerate={handleGenerate} loading={loadingPlan} />
-          <GraphCanvas nodes={flow.nodes} edges={flow.edges} onNodeClick={handleNodeClick} presentationMode={presentationMode} />
+          <GraphCanvas
+            nodes={flow.nodes}
+            edges={flow.edges}
+            onNodeClick={handleNodeClick}
+            onNodeDoubleClick={handleNodeDoubleClick}
+            presentationMode={presentationMode}
+          />
         </div>
 
         {!presentationMode && (
@@ -649,6 +657,18 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
     }
     .detail-modal h3 { margin: 0; }
     .detail-modal ul { margin: 8px 0; padding-left: 20px; }
+    .detail-kpi {
+      display: grid;
+      gap: 8px;
+      margin: 8px 0 12px;
+    }
+    .detail-item {
+      border: 1px solid #dbeafe;
+      border-radius: 10px;
+      background: #f8fbff;
+      padding: 8px 10px;
+      font-size: 14px;
+    }
     .close-btn {
       border: 1px solid #cbd5e1;
       background: #f8fafc;
@@ -725,17 +745,23 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
       const details = state.detailsByNodeId[node.id] || null;
       const consequences = Array.isArray(details?.consequences) ? details.consequences : [];
       const tags = Array.isArray(node.tags) ? node.tags : [];
+      const topEffects = consequences.slice(0, 2);
+      const riskText = (details?.risk_flags || []).join(", ") || "uncertainty";
+      const nextText = details?.next_question || "What should we test next?";
       detailEl.innerHTML =
         '<div class="detail-head">' +
-        "<h3>" + escapeHtml(node.title || node.id) + "</h3>" +
+        "<h3>📍 " + escapeHtml(node.title || node.id) + "</h3>" +
         '<button id="closeBtn" class="close-btn" type="button">Close</button>' +
         "</div>" +
-        "<p><strong>One-liner:</strong> " + escapeHtml(node.one_liner || "-") + "</p>" +
-        "<p><strong>Why it changes:</strong> " + escapeHtml(details?.why_it_changes || node.delta || "Not expanded yet") + "</p>" +
-        "<p><strong>Next question:</strong> " + escapeHtml(details?.next_question || "-") + "</p>" +
-        (consequences.length
-          ? "<h4>Consequences</h4><ul>" + consequences.map((item) => "<li>" + escapeHtml(item) + "</li>").join("") + "</ul>"
-          : "<p>No expanded consequences yet.</p>") +
+        '<div class="detail-kpi">' +
+        '<div class="detail-item"><strong>✨ Quick View:</strong> <em>' + escapeHtml(node.one_liner || "-") + "</em></div>" +
+        '<div class="detail-item"><strong>⚠️ Risk:</strong> ' + escapeHtml(riskText) + "</div>" +
+        '<div class="detail-item"><strong>🎯 Next:</strong> <strong>' + escapeHtml(nextText) + "</strong></div>" +
+        "</div>" +
+        (topEffects.length
+          ? "<h4>📌 Top Effects</h4><ul>" + topEffects.map((item) => "<li>" + escapeHtml(item) + "</li>").join("") + "</ul>"
+          : "<p>No expanded effects yet.</p>") +
+        "<p class='muted'><strong>Why:</strong> " + escapeHtml(details?.why_it_changes || node.delta || "Not expanded yet") + "</p>" +
         (tags.length
           ? '<div class="chip-row">' + tags.map((tag) => '<span class="chip">' + escapeHtml(tag) + "</span>").join("") + "</div>"
           : "");

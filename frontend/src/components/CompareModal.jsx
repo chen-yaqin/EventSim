@@ -24,48 +24,52 @@ export default function CompareModal({ open, left, right, leftDetails, rightDeta
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Branch Compare</h3>
+        <h3>⚖️ Branch Compare</h3>
         <div className="compare-grid">
-          <div>
-            <h4>A: {left?.title || "-"}</h4>
-            <p>{left?.one_liner || "-"}</p>
-            <h4>Pros</h4>
+          <div className="compare-col">
+            <h4>🅰️ {left?.title || "-"}</h4>
+            <p className="muted">
+              <em>{left?.one_liner || "-"}</em>
+            </p>
+            <h4>✅ Pros</h4>
             <ul>
-              {leftPros.map((item) => (
+              {leftPros.slice(0, 3).map((item) => (
                 <li key={`a_pro_${item}`}>{item}</li>
               ))}
             </ul>
-            <h4>Cons</h4>
+            <h4>❌ Cons</h4>
             <ul>
-              {leftCons.map((item) => (
+              {leftCons.slice(0, 3).map((item) => (
                 <li key={`a_con_${item}`}>{item}</li>
               ))}
             </ul>
-            <h4>Risks</h4>
+            <h4>⚠️ Risks</h4>
             <ul>
-              {leftRisks.map((item) => (
+              {leftRisks.slice(0, 3).map((item) => (
                 <li key={`a_risk_${item}`}>{item}</li>
               ))}
             </ul>
           </div>
-          <div>
-            <h4>B: {right?.title || "-"}</h4>
-            <p>{right?.one_liner || "-"}</p>
-            <h4>Pros</h4>
+          <div className="compare-col">
+            <h4>🅱️ {right?.title || "-"}</h4>
+            <p className="muted">
+              <em>{right?.one_liner || "-"}</em>
+            </p>
+            <h4>✅ Pros</h4>
             <ul>
-              {rightPros.map((item) => (
+              {rightPros.slice(0, 3).map((item) => (
                 <li key={`b_pro_${item}`}>{item}</li>
               ))}
             </ul>
-            <h4>Cons</h4>
+            <h4>❌ Cons</h4>
             <ul>
-              {rightCons.map((item) => (
+              {rightCons.slice(0, 3).map((item) => (
                 <li key={`b_con_${item}`}>{item}</li>
               ))}
             </ul>
-            <h4>Risks</h4>
+            <h4>⚠️ Risks</h4>
             <ul>
-              {rightRisks.map((item) => (
+              {rightRisks.slice(0, 3).map((item) => (
                 <li key={`b_risk_${item}`}>{item}</li>
               ))}
             </ul>
