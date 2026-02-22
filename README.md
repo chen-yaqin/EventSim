@@ -1,5 +1,7 @@
 # EventSim
 
+![EventSim Title](image/title.png)
+
 EventSim is an interactive decision-simulation tool. You enter one event, it generates multiple future branches, and helps you compare tradeoffs, risks, and likely outcomes.
 
 ## Quick Start
@@ -53,7 +55,7 @@ Open:
 
 ## Typical User Flow
 
-1. Open `/sim`
+1. Start *EventSim*
 2. Enter an event and generate the initial graph
 3. Click a node to inspect details
 4. Double-click a world node to create more branches
