@@ -1,13 +1,24 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import BranchModal from "../components/BranchModal.jsx";
 import ChatWidget from "../components/ChatWidget.jsx";
 import CompareModal from "../components/CompareModal.jsx";
 import GraphCanvas from "../components/GraphCanvas.jsx";
+import RuntimeConfigModal from "../components/RuntimeConfigModal.jsx";
 import ScenarioForm from "../components/ScenarioForm.jsx";
 import SidePanel from "../components/SidePanel.jsx";
 import ToastStack from "../components/ToastStack.jsx";
 import TopBar from "../components/TopBar.jsx";
-import { fetchBranch, fetchChat, fetchDemo, fetchExpand, fetchPlan } from "../lib/api.js";
+import {
+  applyRuntimeConfig,
+  clearRuntimeConfig,
+  fetchBranch,
+  fetchChat,
+  fetchDemo,
+  fetchExpand,
+  fetchPlan,
+  loadRuntimeConfig,
+  saveRuntimeConfig
+} from "../lib/api.js";
 import { toReactFlow } from "../lib/graph.js";
 
 export default function SimPage() {
@@ -42,6 +53,8 @@ export default function SimPage() {
   const [branchTargetId, setBranchTargetId] = useState(null);
   const [compareIds, setCompareIds] = useState([]);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [runtimeConfigOpen, setRuntimeConfigOpen] = useState(false);
+  const [runtimeConfig, setRuntimeConfig] = useState(() => loadRuntimeConfig());
 
   const selectedNode = useMemo(() => graph.nodes.find((n) => n.id === selectedId) || null, [graph, selectedId]);
   const branchTargetNode = useMemo(
@@ -57,6 +70,13 @@ export default function SimPage() {
   const compareNodes = useMemo(() => compareIds.map((id) => graph.nodes.find((n) => n.id === id)).filter(Boolean), [compareIds, graph.nodes]);
   const compareLeft = compareNodes[0] || null;
   const compareRight = compareNodes[1] || null;
+  const runtimeConfigured = Boolean(
+    runtimeConfig.anthropicApiKey || runtimeConfig.openaiApiKey || runtimeConfig.geminiApiKey
+  );
+
+  useEffect(() => {
+    applyRuntimeConfig(runtimeConfig);
+  }, [runtimeConfig]);
 
   async function handleGenerate() {
     setLoadingPlan(true);
@@ -430,6 +450,8 @@ export default function SimPage() {
         callsUsed={callsUsed}
         onOpenCompare={handleOpenCompare}
         compareReady={compareNodes.length === 2}
+        onOpenRuntimeConfig={() => setRuntimeConfigOpen(true)}
+        runtimeConfigured={runtimeConfigured}
       />
 
       <div className="workspace">
@@ -490,6 +512,23 @@ export default function SimPage() {
         rightDetails={compareRight ? expanded[compareRight.id] : null}
         onClose={() => setCompareOpen(false)}
         onExport={handleExportCompareConclusion}
+      />
+      <RuntimeConfigModal
+        open={runtimeConfigOpen}
+        config={runtimeConfig}
+        onChange={(key, value) => setRuntimeConfig((prev) => ({ ...prev, [key]: value }))}
+        onSave={() => {
+          const saved = saveRuntimeConfig(runtimeConfig);
+          setRuntimeConfig(saved);
+          setRuntimeConfigOpen(false);
+          toast("Runtime config saved and applied", "success");
+        }}
+        onReset={() => {
+          const cleared = clearRuntimeConfig();
+          setRuntimeConfig(cleared);
+          toast("Runtime config cleared", "info");
+        }}
+        onClose={() => setRuntimeConfigOpen(false)}
       />
       <ToastStack items={toasts} />
     </main>

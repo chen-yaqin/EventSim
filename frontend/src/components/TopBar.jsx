@@ -6,7 +6,9 @@ export default function TopBar({
   onExport,
   callsUsed,
   onOpenCompare,
-  compareReady
+  compareReady,
+  onOpenRuntimeConfig,
+  runtimeConfigured
 }) {
   return (
     <header className="topbar">
@@ -28,6 +30,10 @@ export default function TopBar({
         <button className="btn btn-soft" onClick={onExport}>
           Export JSON
         </button>
+        <button className="btn btn-soft" onClick={onOpenRuntimeConfig}>
+          Runtime Config
+        </button>
+        <span className="badge">{runtimeConfigured ? "BYOK On" : "BYOK Off"}</span>
         <span className="badge">Calls: {callsUsed}</span>
       </div>
     </header>

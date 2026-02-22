@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "build:frontend": "npm --prefix ../frontend run build",
+    "start:bundle": "npm run build:frontend && node src/index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

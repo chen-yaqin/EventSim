@@ -83,6 +83,26 @@ npm run dev
 
 Default: `http://localhost:8787`
 
+### Ship Without GitHub Source Flow
+
+If your users should open the full simulator UI directly, package built frontend files and serve them from backend:
+
+```bash
+cd backend
+npm install
+npm run start:bundle
+```
+
+Then users open:
+
+- `http://localhost:8787/` (full UI)
+- `http://localhost:8787/sim`
+
+Notes:
+
+- Full UI is the React app from `frontend/dist`, served by backend when dist exists.
+- Users can click `Runtime Config` in UI and fill API keys + provider/model routing directly in page.
+
 ### 3) Run Frontend
 
 ```bash
@@ -144,7 +164,7 @@ npm run dev
 
 - Frontend: React + Vite + React Flow + React Router
 - Backend: Node.js + Express
-- Provider: Anthropic API + deterministic fallback
+- Provider routing: Anthropic/OpenAI/Gemini + deterministic fallback
 - Cache: JSON files in `backend/cache`
 
 ## Repository Structure

@@ -1,4 +1,7 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 const PROVIDERS = new Set(["anthropic", "openai", "gemini"]);
+const runtimeConfigStore = new AsyncLocalStorage();
 
 function normalizeProvider(value) {
   const normalized = String(value || "")
@@ -56,7 +59,61 @@ export const PROVIDER_CONFIG = {
 
 export const ANTHROPIC_CONFIG = PROVIDER_CONFIG.anthropic;
 
+function getRuntimeConfig() {
+  return runtimeConfigStore.getStore() || null;
+}
+
+function getRuntimeString(runtime, key) {
+  if (!runtime || typeof runtime !== "object") return "";
+  const value = String(runtime[key] || "").trim();
+  return value;
+}
+
+function hasRuntimeOverrides(runtime) {
+  if (!runtime || typeof runtime !== "object") return false;
+  const keys = [
+    "anthropicApiKey",
+    "openaiApiKey",
+    "geminiApiKey",
+    "modelProvider",
+    "model",
+    "basicProvider",
+    "basicModel",
+    "chatbotProvider",
+    "chatbotModel",
+    "branchProvider",
+    "branchModel"
+  ];
+  return keys.some((key) => Boolean(getRuntimeString(runtime, key)));
+}
+
+function getRuntimeRoute(taskName, runtime) {
+  const lowerTask = String(taskName || "basic").toLowerCase();
+  const providerKey = `${lowerTask}Provider`;
+  const modelKey = `${lowerTask}Model`;
+  const baseRoute = MODEL_CONFIG[lowerTask] || DEFAULT_ROUTE;
+  const taskProvider = getRuntimeString(runtime, providerKey);
+  const globalProvider = getRuntimeString(runtime, "modelProvider");
+  const taskModel = getRuntimeString(runtime, modelKey);
+  const globalModel = getRuntimeString(runtime, "model");
+  const provider = normalizeProvider(taskProvider || globalProvider || baseRoute.provider);
+  let model = baseRoute.model;
+  if (taskModel || globalModel) {
+    model = taskModel || globalModel;
+  } else if (provider !== baseRoute.provider) {
+    // If user overrides provider but leaves model empty, pick provider default.
+    model = defaultModelForProvider(provider);
+  }
+  return { provider, model };
+}
+
+export function runWithRuntimeConfig(runtimeConfig, fn) {
+  return runtimeConfigStore.run(runtimeConfig || {}, fn);
+}
+
 export function getRouteForTask(taskName) {
+  const runtime = getRuntimeConfig();
+  if (hasRuntimeOverrides(runtime)) return getRuntimeRoute(taskName, runtime);
   return MODEL_CONFIG[taskName] || DEFAULT_ROUTE;
 }
 
@@ -65,10 +122,26 @@ export function getModelForTask(taskName) {
 }
 
 export function hasProviderApiKey(provider) {
+  const runtime = getRuntimeConfig();
+  if (hasRuntimeOverrides(runtime)) {
+    const runtimeKey = `${provider}ApiKey`;
+    const runtimeApiKey = getRuntimeString(runtime, runtimeKey);
+    if (runtimeApiKey) return true;
+  }
   return Boolean(PROVIDER_CONFIG[provider]?.apiKey);
 }
 
 export function canCallTask(taskName) {
   const route = getRouteForTask(taskName);
   return hasProviderApiKey(route.provider);
+}
+
+export function getProviderConfig(provider) {
+  const base = PROVIDER_CONFIG[provider] || {};
+  const runtime = getRuntimeConfig();
+  if (!hasRuntimeOverrides(runtime)) return base;
+  const runtimeKey = `${provider}ApiKey`;
+  const runtimeApiKey = getRuntimeString(runtime, runtimeKey);
+  if (!runtimeApiKey) return base;
+  return { ...base, apiKey: runtimeApiKey };
 }

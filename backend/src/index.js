@@ -7,24 +7,32 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   canCallTask,
+  getProviderConfig,
   getModelForTask,
   getRouteForTask,
   hasProviderApiKey,
   MODEL_CONFIG,
-  PROVIDER_CONFIG
+  PROVIDER_CONFIG,
+  runWithRuntimeConfig
 } from "./config/models.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
+const PROJECT_ROOT = path.resolve(ROOT, "..");
 const CACHE_DIR = path.join(ROOT, "cache");
 const DEMO_DIR = path.join(ROOT, "demo");
+const FRONTEND_DIST_DIR = path.join(PROJECT_ROOT, "frontend", "dist");
 
 const app = express();
 const PORT = process.env.PORT || 8787;
 
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
+app.use((req, _res, next) => {
+  const runtimeConfig = parseRuntimeConfigFromHeaders(req.headers || {});
+  runWithRuntimeConfig(runtimeConfig, next);
+});
 
 const ROLE_PRESETS = [
   { roleId: "you_now", title: "You-Now", style: "practical and immediate constraints" },
@@ -49,6 +57,7 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     service: "eventsim-backend",
     now: new Date().toISOString(),
+    runtimeConfigSupported: true,
     anthropicConfigured: Boolean(PROVIDER_CONFIG.anthropic.apiKey),
     providersConfigured: {
       anthropic: Boolean(PROVIDER_CONFIG.anthropic.apiKey),
@@ -363,6 +372,16 @@ app.get("/api/demo/:id", (req, res) => {
   return res.json(readJson(demoFile));
 });
 
+if (fs.existsSync(FRONTEND_DIST_DIR)) {
+  app.use(express.static(FRONTEND_DIST_DIR));
+  app.get(/^\/(sim|demo)(\/.*)?$/, (_req, res) => {
+    res.sendFile(path.join(FRONTEND_DIST_DIR, "index.html"));
+  });
+  app.get("/", (_req, res) => {
+    res.sendFile(path.join(FRONTEND_DIST_DIR, "index.html"));
+  });
+}
+
 app.listen(PORT, () => {
   console.log(`[eventsim] backend listening on http://localhost:${PORT}`);
   console.log(`[eventsim] providers configured:`, {
@@ -372,6 +391,26 @@ app.listen(PORT, () => {
   });
   console.log(`[eventsim] models:`, MODEL_CONFIG);
 });
+
+function parseRuntimeConfigFromHeaders(headers = {}) {
+  const read = (name) => {
+    const value = headers[name];
+    return typeof value === "string" ? value.trim() : "";
+  };
+  return {
+    anthropicApiKey: read("x-runtime-anthropic-api-key"),
+    openaiApiKey: read("x-runtime-openai-api-key"),
+    geminiApiKey: read("x-runtime-gemini-api-key"),
+    modelProvider: read("x-runtime-model-provider"),
+    model: read("x-runtime-model"),
+    basicProvider: read("x-runtime-model-basic-provider"),
+    basicModel: read("x-runtime-model-basic"),
+    chatbotProvider: read("x-runtime-model-chatbot-provider"),
+    chatbotModel: read("x-runtime-model-chatbot"),
+    branchProvider: read("x-runtime-model-branch-provider"),
+    branchModel: read("x-runtime-model-branch")
+  };
+}
 
 async function buildInitialGraphWithClaude(eventText, options, rootTitle = "") {
   const timeframe = options.timeframe || "1 year";
@@ -471,7 +510,8 @@ async function buildNodeDetailsWithClaude(nodeId, nodeContext = {}) {
       "Concise constraints:",
       "Each consequence <= 12 words.",
       "why_it_changes <= 20 words.",
-      "next_question <= 14 words."
+      "next_question <= 14 words.",
+      "Each risk_flags item should be a short risk sentence <= 10 words."
     ].join(" "),
     messages: [
       {
@@ -502,7 +542,9 @@ async function buildNodeDetailsWithClaude(nodeId, nodeContext = {}) {
       typeof parsed.next_question === "string"
         ? limitWords(parsed.next_question, 14)
         : "What small test can validate this branch in the next 7 days?",
-    risk_flags: normalizeStringArray(parsed.risk_flags, 2, ["tradeoff"]),
+    risk_flags: normalizeStringArray(parsed.risk_flags, 2, [
+      "Key assumption may fail under uncertainty."
+    ]).map((item) => limitWords(item, 10)),
     __contentFallback: false,
     __contentFallbackReason: null
   };
@@ -696,15 +738,16 @@ async function callModelText({ task = "basic", provider, model, system, messages
 }
 
 async function callAnthropicText({ model, system, messages, maxTokens }) {
+  const anthropicConfig = getProviderConfig("anthropic");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   let response;
   try {
-    response = await fetch(PROVIDER_CONFIG.anthropic.apiUrl, {
+    response = await fetch(anthropicConfig.apiUrl, {
       method: "POST",
       headers: {
-        "x-api-key": PROVIDER_CONFIG.anthropic.apiKey,
-        "anthropic-version": PROVIDER_CONFIG.anthropic.version,
+        "x-api-key": anthropicConfig.apiKey,
+        "anthropic-version": anthropicConfig.version,
         "content-type": "application/json"
       },
       body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0.2, system, messages }),
@@ -721,6 +764,7 @@ async function callAnthropicText({ model, system, messages, maxTokens }) {
 }
 
 async function callOpenAIText({ model, system, messages, maxTokens }) {
+  const openaiConfig = getProviderConfig("openai");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   const assembled = [];
@@ -728,10 +772,10 @@ async function callOpenAIText({ model, system, messages, maxTokens }) {
   if (Array.isArray(messages)) assembled.push(...messages.map(toOpenAIMessage));
   let response;
   try {
-    response = await fetch(PROVIDER_CONFIG.openai.apiUrl, {
+    response = await fetch(openaiConfig.apiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${PROVIDER_CONFIG.openai.apiKey}`,
+        Authorization: `Bearer ${openaiConfig.apiKey}`,
         "content-type": "application/json"
       },
       body: JSON.stringify({
@@ -761,10 +805,11 @@ async function callOpenAIText({ model, system, messages, maxTokens }) {
 }
 
 async function callGeminiText({ model, system, messages, maxTokens }) {
+  const geminiConfig = getProviderConfig("gemini");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   const encodedModel = encodeURIComponent(model);
-  const url = `${PROVIDER_CONFIG.gemini.apiUrl}/${encodedModel}:generateContent?key=${encodeURIComponent(PROVIDER_CONFIG.gemini.apiKey)}`;
+  const url = `${geminiConfig.apiUrl}/${encodedModel}:generateContent?key=${encodeURIComponent(geminiConfig.apiKey)}`;
   const payload = {
     contents: Array.isArray(messages) ? messages.map(toGeminiMessage) : [],
     generationConfig: {
@@ -953,7 +998,7 @@ function buildNodeDetailsFallback(nodeId, nodeContext = {}) {
       ],
       why_it_changes: "The root is only the anchor context. Branches carry actionable divergences.",
       next_question: "Which first-level world seems most plausible to explore deeper?",
-      risk_flags: ["uncertainty"],
+      risk_flags: ["Core assumptions remain uncertain without branch testing."],
       __contentFallback: true,
       __contentFallbackReason: "fallback_root"
     };
@@ -973,7 +1018,10 @@ function buildNodeDetailsFallback(nodeId, nodeContext = {}) {
     why_it_changes:
       delta || "This node modifies assumptions and therefore shifts feasible actions, risks, and expected outcomes.",
     next_question: "What concrete 7-day test can validate this node's key assumption?",
-    risk_flags: ["tradeoff", "uncertainty"],
+    risk_flags: [
+      "Tradeoff pressure can reduce option quality.",
+      "Outcome uncertainty may rise with limited evidence."
+    ],
     __contentFallback: true,
     __contentFallbackReason: "fallback_node"
   };
