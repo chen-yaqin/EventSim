@@ -7,8 +7,7 @@ export default function TopBar({
   callsUsed,
   onOpenCompare,
   compareReady,
-  onOpenRuntimeConfig,
-  runtimeConfigured
+  onOpenRuntimeConfig
 }) {
   return (
     <header className="topbar">
@@ -33,7 +32,6 @@ export default function TopBar({
         <button className="btn btn-soft" onClick={onOpenRuntimeConfig}>
           Runtime Config
         </button>
-        <span className="badge">{runtimeConfigured ? "BYOK On" : "BYOK Off"}</span>
         <span className="badge">Calls: {callsUsed}</span>
       </div>
     </header>

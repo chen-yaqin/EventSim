@@ -70,9 +70,6 @@ export default function SimPage() {
   const compareNodes = useMemo(() => compareIds.map((id) => graph.nodes.find((n) => n.id === id)).filter(Boolean), [compareIds, graph.nodes]);
   const compareLeft = compareNodes[0] || null;
   const compareRight = compareNodes[1] || null;
-  const runtimeConfigured = Boolean(
-    runtimeConfig.anthropicApiKey || runtimeConfig.openaiApiKey || runtimeConfig.geminiApiKey
-  );
 
   useEffect(() => {
     applyRuntimeConfig(runtimeConfig);
@@ -451,7 +448,6 @@ export default function SimPage() {
         onOpenCompare={handleOpenCompare}
         compareReady={compareNodes.length === 2}
         onOpenRuntimeConfig={() => setRuntimeConfigOpen(true)}
-        runtimeConfigured={runtimeConfigured}
       />
 
       <div className="workspace">

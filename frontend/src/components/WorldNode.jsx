@@ -63,13 +63,33 @@ function chipTone(tag) {
   const value = String(tag || "").toLowerCase().trim();
   const tokens = value.split(/[^a-z0-9]+/).filter(Boolean);
   if (!tokens.length) return "chip-action";
+  const normalized = ` ${value.replace(/[^a-z0-9]+/g, " ").trim()} `;
+  const hasPhrase = (phrase) => normalized.includes(` ${phrase} `);
+
+  const negativePhrases = [
+    "high risk",
+    "at risk",
+    "risk of",
+    "single point of failure",
+    "technical debt",
+    "scope creep"
+  ];
+  const positivePhrases = [
+    "high reward",
+    "low risk",
+    "upside potential",
+    "quick win",
+    "founder mode"
+  ];
 
   const negativeLexicon = new Set([
     "risk",
     "risky",
-    "high",
     "uncertain",
     "uncertainty",
+    "tradeoff",
+    "constraint",
+    "constraints",
     "radical",
     "loss",
     "failure",
@@ -91,10 +111,14 @@ function chipTone(tag) {
     "safe",
     "stable",
     "stability",
+    "reward",
     "benefit",
+    "gains",
+    "gain",
     "upside",
     "growth",
     "opportunity",
+    "opportunities",
     "resilient",
     "robust",
     "alignment",
@@ -105,13 +129,18 @@ function chipTone(tag) {
 
   let negativeScore = 0;
   let positiveScore = 0;
+
+  for (const phrase of negativePhrases) {
+    if (hasPhrase(phrase)) negativeScore += 2;
+  }
+  for (const phrase of positivePhrases) {
+    if (hasPhrase(phrase)) positiveScore += 2;
+  }
+
   for (const token of tokens) {
     if (negativeLexicon.has(token)) negativeScore += 1;
     if (positiveLexicon.has(token)) positiveScore += 1;
   }
-
-  if (value.includes("low-risk") || value.includes("low_risk")) positiveScore += 2;
-  if (value.includes("high-risk") || value.includes("high_risk")) negativeScore += 2;
 
   if (negativeScore > positiveScore) return "chip-risk";
   if (positiveScore > negativeScore) return "chip-benefit";
