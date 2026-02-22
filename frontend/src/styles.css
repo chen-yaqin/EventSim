@@ -464,6 +464,14 @@ select {
   padding: 16px;
 }
 
+.branch-conflict-backdrop {
+  z-index: 50;
+}
+
+.branch-conflict-modal {
+  width: min(640px, 100%);
+}
+
 .runtime-modal h3,
 .runtime-modal h4 {
   margin: 0 0 8px;

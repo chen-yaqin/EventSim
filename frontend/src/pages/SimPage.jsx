@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import BranchModal from "../components/BranchModal.jsx";
+import BranchConflictModal from "../components/BranchConflictModal.jsx";
 import ChatWidget from "../components/ChatWidget.jsx";
 import CompareModal from "../components/CompareModal.jsx";
 import GraphCanvas from "../components/GraphCanvas.jsx";
@@ -49,6 +50,7 @@ export default function SimPage() {
   const [branchChildCount, setBranchChildCount] = useState(3);
   const [branchChildCountByNode, setBranchChildCountByNode] = useState({});
   const [branchLoading, setBranchLoading] = useState(false);
+  const [branchConflictOpen, setBranchConflictOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [branchModalOpen, setBranchModalOpen] = useState(false);
   const [branchTargetId, setBranchTargetId] = useState(null);
@@ -61,6 +63,10 @@ export default function SimPage() {
   const branchTargetNode = useMemo(
     () => graph.nodes.find((n) => n.id === branchTargetId) || null,
     [graph, branchTargetId]
+  );
+  const branchTargetHasChildren = useMemo(
+    () => Boolean(branchTargetNode && hasChildren(graph, branchTargetNode.id, branchChildCountByNode)),
+    [graph, branchTargetNode, branchChildCountByNode]
   );
   const flow = useMemo(
     () => toReactFlow(graph, handleToggleCollapse, openBranchModalForNode, handleToggleCompareNode, compareIds),
@@ -225,31 +231,40 @@ export default function SimPage() {
 
   async function handleBranchGenerate() {
     if (!branchTargetNode || branchTargetNode.type !== "world" || !branchInput.trim() || !eventHash) return;
+    setBranchConflictOpen(true);
+  }
+
+  async function generateBranchChildren(mode = "append") {
+    if (!branchTargetNode || branchTargetNode.type !== "world" || !branchInput.trim() || !eventHash) return;
+    const targetNode = branchTargetNode;
     const normalizedChildCount = normalizeChildCount(branchChildCount);
     setBranchLoading(true);
     try {
-      const lineage = buildLineage(graph.nodes, branchTargetNode.id);
+      const lineage = buildLineage(graph.nodes, targetNode.id);
       const result = await fetchBranch({
         eventHash,
-        parentNodeId: branchTargetNode.id,
-        parentTitle: branchTargetNode.title,
-        parentBranchLabel: branchTargetNode.data?.branchLabel || "",
-        parentOneLiner: branchTargetNode.one_liner || "",
-        parentDelta: branchTargetNode.delta || "",
-        parentTags: Array.isArray(branchTargetNode.tags) ? branchTargetNode.tags : [],
+        parentNodeId: targetNode.id,
+        parentTitle: targetNode.title,
+        parentBranchLabel: targetNode.data?.branchLabel || "",
+        parentOneLiner: targetNode.one_liner || "",
+        parentDelta: targetNode.delta || "",
+        parentTags: Array.isArray(targetNode.tags) ? targetNode.tags : [],
         userQuestion: branchInput.trim(),
         childCount: normalizedChildCount,
         lineage,
         useCache: form.useCache
       });
-      setGraph((prev) => mergeGraph(prev, result, branchTargetNode.id));
+      setGraph((prev) =>
+        mode === "replace" ? replaceBranchSubtree(prev, result, targetNode.id) : mergeGraph(prev, result, targetNode.id)
+      );
       setBranchChildCountByNode((prev) => ({
         ...prev,
-        [branchTargetNode.id]: normalizedChildCount
+        [targetNode.id]: normalizedChildCount
       }));
       setCallsUsed((x) => x + 1);
       setBranchInput("");
       setBranchChildCount(normalizedChildCount);
+      setBranchConflictOpen(false);
       setBranchModalOpen(false);
       toast(result.meta.cache === "hit" ? "Branch loaded from cache" : "Child worlds generated", "success");
     } catch (error) {
@@ -274,6 +289,7 @@ export default function SimPage() {
     if (!node || node.type !== "world") return;
     setBranchTargetId(nodeId);
     setBranchModalOpen(true);
+    setBranchConflictOpen(false);
     setBranchInput("");
     setBranchChildCount(branchChildCountByNode[nodeId] ?? 3);
   }
@@ -510,8 +526,20 @@ export default function SimPage() {
         onInputChange={setBranchInput}
         onChildCountChange={setBranchChildCount}
         onGenerate={handleBranchGenerate}
-        onClose={() => setBranchModalOpen(false)}
+        onClose={() => {
+          setBranchConflictOpen(false);
+          setBranchModalOpen(false);
+        }}
         loading={branchLoading}
+      />
+      <BranchConflictModal
+        open={branchConflictOpen}
+        node={branchTargetNode}
+        hasExistingChildren={branchTargetHasChildren}
+        loading={branchLoading}
+        onOverwrite={() => generateBranchChildren("replace")}
+        onAppend={() => generateBranchChildren("append")}
+        onCancel={() => setBranchConflictOpen(false)}
       />
       <CompareModal
         open={compareOpen}
@@ -584,6 +612,54 @@ function mergeGraph(current, branchPayload, parentNodeId) {
     nodes: [...nodesById.values()],
     edges: [...edgesById.values()]
   };
+}
+
+function replaceBranchSubtree(current, branchPayload, parentNodeId) {
+  const descendantIds = collectDescendantIds(current, parentNodeId);
+  const keepNode = (node) => !descendantIds.has(node.id);
+  const keepEdge = (edge) => !descendantIds.has(edge.source) && !descendantIds.has(edge.target);
+  return mergeGraph(
+    {
+      nodes: current.nodes.filter(keepNode),
+      edges: current.edges.filter(keepEdge)
+    },
+    branchPayload,
+    parentNodeId
+  );
+}
+
+function hasChildren(graph, nodeId, branchChildCountByNode = {}) {
+  if (graph.edges.some((edge) => edge.source === nodeId)) return true;
+  if (graph.nodes.some((node) => node.parentId === nodeId)) return true;
+  if (graph.nodes.some((node) => node.id !== nodeId && node.id.startsWith(`${nodeId}_`))) return true;
+  if (Object.prototype.hasOwnProperty.call(branchChildCountByNode || {}, nodeId)) return true;
+  return false;
+}
+
+function collectDescendantIds(graph, parentNodeId) {
+  const childrenByParent = new Map();
+  for (const edge of graph.edges || []) {
+    const siblings = childrenByParent.get(edge.source) || [];
+    siblings.push(edge.target);
+    childrenByParent.set(edge.source, siblings);
+  }
+  for (const node of graph.nodes || []) {
+    if (!node.parentId) continue;
+    const siblings = childrenByParent.get(node.parentId) || [];
+    siblings.push(node.id);
+    childrenByParent.set(node.parentId, siblings);
+  }
+
+  const descendants = new Set();
+  const stack = [...(childrenByParent.get(parentNodeId) || [])];
+  while (stack.length) {
+    const currentId = stack.pop();
+    if (!currentId || descendants.has(currentId)) continue;
+    descendants.add(currentId);
+    const next = childrenByParent.get(currentId) || [];
+    for (const childId of next) stack.push(childId);
+  }
+  return descendants;
 }
 
 function normalizeChildCount(value) {
