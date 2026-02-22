@@ -1,57 +1,89 @@
 # EventSim
 
-EventSim 是一个面向 Hackathon 演示的交互式事件模拟器。  
-它把一个事件拆成「反事实分支 + 角色视角」，帮助用户快速比较不同选择会如何影响结果。
+EventSim is an interactive counterfactual simulation app designed for hackathon demos and rapid decision exploration.
+It turns one event into a branching world graph, then lets users inspect each branch, chat from role perspectives, compare branches side-by-side, and continue branching deeper.
 
-## 1. 这个项目目前做了什么
+## Introduction
 
-当前版本已经实现完整 MVP（可直接演示）：
+Most decision tools are linear. EventSim is intentionally non-linear:
 
-- 输入事件文本，生成模拟图谱（1 个 root + 3 个世界节点）
-- 三种反事实距离：
-  - `minimal`（最小改动）
-  - `moderate`（中等改动）
-  - `radical`（激进改动）
-- 三种固定角色视角（在右下角聊天机器人里切换，不在图中显示）：
-  - `you_now`
-  - `you_5y`
-  - `neutral_advisor`
-- 点击节点按需展开详情（懒加载）：
-  - `consequences`（3 条）
-  - `why_it_changes`
-  - `next_question`
-  - `risk_flags`
-- 在图中点击节点 `Branch` 按钮会弹窗，继续问答并派生子世界（如 `A -> A1/A2/A3`）
-- 每个节点可折叠/展开，控制是否继续显示子树
-- Demo Mode（本地预生成 JSON，断网也可展示）
-- 导出当前图谱为 JSON、复制摘要到剪贴板
-- 后端缓存（文件缓存）+ 简单限流 + 安全拦截（医疗/法律/自伤类）
+- Start with one event.
+- Generate multiple possible worlds (`minimal`, `moderate`, `radical`).
+- Expand node details (`consequences`, `why_it_changes`, `next_question`, `risk_flags`).
+- Continue branching from any world node.
+- Compare two branches using `Pros / Cons / Risks`.
+- Use role-based chat (`You-Now`, `You-in-5-Years`, `Neutral Advisor`, plus `Custom Role`) to test reasoning from different lenses.
 
-注意：当前生成逻辑是**稳定的后端规则生成**（非在线 LLM 调用），用于保证演示可靠性和成本可控。
+This project is built for clear live demos:
 
-## 2. 技术栈与架构
+- Fast startup
+- Deterministic fallback behavior when model calls fail
+- Cache-aware API flow
+- Visual graph interaction with branch/depth control
 
-- Frontend: React + Vite + React Flow + React Router
-- Backend: Node.js + Express
-- Cache: `backend/cache/*.json`
-- Demo Data: `backend/demo/*.json`
+## What Is Implemented
 
-核心接口：
+Current MVP includes:
 
-- `POST /api/plan`：生成图谱骨架
-- `POST /api/expand`：按节点展开详情
-- `POST /api/chat`：按 role 与当前节点进行问答
-- `POST /api/branch`：基于选中节点继续派生 3 个子世界
-- `GET /api/demo/:id`：读取预生成 demo 场景
+- Graph generation from event input (`1 root + 3 world nodes`)
+- Node detail expansion (lazy loaded)
+- Branch generation from selected world nodes (custom child count)
+- Role chat (preset roles + custom role)
+- Branch compare modal with two-column `Pros / Cons / Risks`
+- Lineage window with timeline, breadcrumb, and click-to-open details
+- Node collapse/expand
+- Demo mode (`/api/demo/:id`)
+- Export graph JSON
+- Backend cache + rate limiting + restricted-content guardrails
 
-## 3. 环境要求
+## Tech Stack
 
-- Node.js 18+（建议 20+）
+- Frontend: React, Vite, React Flow, React Router
+- Backend: Node.js, Express
+- Model provider: Anthropic API (with fallback)
+- Cache: file-based JSON in `backend/cache/`
+
+## Project Structure
+
+```text
+EventSim/
+  frontend/
+    src/
+      components/
+      pages/
+      lib/
+      styles.css
+  backend/
+    src/
+      index.js
+      config/
+    cache/
+    demo/
+  docs/
+  assets/
+```
+
+## API Overview
+
+- `POST /api/plan` - Generate initial graph
+- `POST /api/expand` - Expand one node's details
+- `POST /api/branch` - Generate child worlds from a node
+- `POST /api/chat` - Chat from a role perspective (supports custom role)
+- `GET /api/demo/:id` - Load demo graph
+- `GET /api/health` - Health check
+
+## Instructions
+
+### 1. Prerequisites
+
+- Node.js 18+ (20+ recommended)
 - npm 9+
 
-## 3.1 Claude API 配置（.env）
+### 2. Environment Setup
 
-在 `backend/` 下创建 `.env`（可从 `backend/.env.example` 复制）：
+Create `backend/.env` from `backend/.env.example`.
+
+Example:
 
 ```bash
 ANTHROPIC_API_KEY=your_key_here
@@ -64,19 +96,9 @@ ANTHROPIC_MODEL_CHATBOT=claude-3-5-sonnet-latest
 ANTHROPIC_MODEL_BRANCH=claude-3-5-sonnet-latest
 ```
 
-模型路由配置文件在：`backend/src/config/models.js`
+If `ANTHROPIC_API_KEY` is missing, backend fallback logic still allows demo usage.
 
-- `basic`：用于 `/api/plan`、`/api/expand`
-- `chatbot`：用于 `/api/chat`
-- `branch`：用于 `/api/branch`
-
-如果没有配置 `ANTHROPIC_API_KEY`，后端会自动回退到本地规则生成（fallback）。
-
-## 4. 一步一步启动（明确指令）
-
-请开两个终端窗口。
-
-### 4.1 启动后端
+### 3. Run Backend
 
 ```bash
 cd backend
@@ -84,17 +106,16 @@ npm install
 npm run dev
 ```
 
-默认地址：`http://localhost:8787`
+Default backend URL: `http://localhost:8787`
 
-可选（自定义端口）：
+Optional custom port (PowerShell):
 
-```bash
-# Windows PowerShell
+```powershell
 $env:PORT=8788
 npm run dev
 ```
 
-### 4.2 启动前端
+### 4. Run Frontend
 
 ```bash
 cd frontend
@@ -102,37 +123,34 @@ npm install
 npm run dev
 ```
 
-默认地址：`http://localhost:5173`
+Default frontend URL: `http://localhost:5173`
 
-可选（自定义后端地址）：
+Optional API URL override (PowerShell):
 
-```bash
-# Windows PowerShell
+```powershell
 $env:VITE_API_URL="http://localhost:8787"
 npm run dev
 ```
 
-### 4.3 打开页面
+### 5. Open App Routes
 
-- 首页：`/`
-- 主模拟器：`/sim`
-- Demo 模式：`/demo`
+- Home: `/`
+- Simulator: `/sim`
+- Demo list: `/demo`
 
-## 5. 使用说明（建议按这个流程演示）
+## Recommended Demo Flow
 
-1. 打开 `/demo`，点击 `Demo: Offer Decision`，展示“秒开”能力。
-2. 进入 `/sim`，选择模板或输入事件文本。
-3. 点击 `Generate Graph`，生成图谱。
-4. 点击任意 World 节点，右侧面板会加载结构化详情。
-5. 点击右下角 `Role Chat` 浮窗，切换角色并提问，进行多轮问答。
-6. 在图中选定节点后，点击节点上的 `Branch` 按钮，在弹窗中输入追问，生成子世界（1/2/3）。
-7. 节点支持 `Collapse/Expand`，可控制是否继续展示子树。
-8. 点击 `Export JSON` 导出当前结果。
-9. 点击 `Copy Summary` 复制结论摘要。
+1. Open `/demo` and load a preset (quick proof of flow).
+2. Open `/sim`, enter an event, and click `Generate Graph`.
+3. Single-click a node to select and load details.
+4. Double-click a world node to open branch modal and generate child worlds.
+5. Select two nodes (`Compare`), then click `Branch Compare`.
+6. Use `Role Chat` with preset roles or `Custom Role`.
+7. Open `Lineage Window` to show timeline and branch history.
 
-## 6. API 使用示例
+## API Examples
 
-### 6.1 生成图谱
+### Generate Plan
 
 ```bash
 curl -X POST http://localhost:8787/api/plan \
@@ -140,7 +158,7 @@ curl -X POST http://localhost:8787/api/plan \
   -d "{\"eventText\":\"I have two job offers and need to choose.\",\"options\":{\"timeframe\":\"1 year\",\"stakes\":\"high\",\"goal\":\"growth\"}}"
 ```
 
-### 6.2 展开节点
+### Expand Node
 
 ```bash
 curl -X POST http://localhost:8787/api/expand \
@@ -148,7 +166,15 @@ curl -X POST http://localhost:8787/api/expand \
   -d "{\"eventHash\":\"<from-plan-meta>\",\"nodeId\":\"world_a\"}"
 ```
 
-### 6.3 Role 聊天
+### Branch Node
+
+```bash
+curl -X POST http://localhost:8787/api/branch \
+  -H "Content-Type: application/json" \
+  -d "{\"eventHash\":\"<from-plan-meta>\",\"parentNodeId\":\"world_a\",\"parentTitle\":\"World A\",\"userQuestion\":\"What if we prioritize retention over speed?\",\"childCount\":4}"
+```
+
+### Chat (Preset Role)
 
 ```bash
 curl -X POST http://localhost:8787/api/chat \
@@ -156,69 +182,44 @@ curl -X POST http://localhost:8787/api/chat \
   -d "{\"eventHash\":\"<from-plan-meta>\",\"nodeId\":\"world_a\",\"nodeTitle\":\"World A\",\"roleId\":\"you_now\",\"message\":\"What should I do first?\"}"
 ```
 
-### 6.4 派生子世界
+### Chat (Custom Role)
 
 ```bash
-curl -X POST http://localhost:8787/api/branch \
+curl -X POST http://localhost:8787/api/chat \
   -H "Content-Type: application/json" \
-  -d "{\"eventHash\":\"<from-plan-meta>\",\"parentNodeId\":\"world_a\",\"parentTitle\":\"World A\",\"userQuestion\":\"What if we prioritize retention over speed?\"}"
+  -d "{\"eventHash\":\"<from-plan-meta>\",\"nodeId\":\"world_a\",\"nodeTitle\":\"World A\",\"roleId\":\"custom\",\"customRoleTitle\":\"Product Manager\",\"customRoleStyle\":\"user impact and scope-risk tradeoffs\",\"message\":\"What is the next best step?\"}"
 ```
 
-### 6.5 加载 Demo 场景
+## UX Notes
 
-```bash
-curl http://localhost:8787/api/demo/offer-decision
-```
+- Single click node: select + fetch details (if not cached)
+- Double click world node: open branch modal
+- Node tags are color-coded by semantic polarity (risk/benefit/action)
 
-## 7. 目录结构
+## Safety and Boundaries
 
-```text
-EventSim/
-  frontend/
-    src/
-      components/
-      pages/
-      lib/
-  backend/
-    src/index.js
-    prompts/
-    demo/
-    cache/
-  docs/
-    ARCHITECTURE.md
-    DEMO.md
-    IDEAS.md
-  assets/
-```
+EventSim is for exploration and reflection, not professional advice.
+Restricted categories (e.g., self-harm, medical diagnosis, legal advice requests) are blocked by backend rules.
 
-## 8. 安全与边界
+## Troubleshooting
 
-- 本项目用于反思和探索，不提供专业医疗/法律/危机干预建议。
-- 若输入涉及高风险类别，后端会返回拦截提示而不是继续生成。
+### Node details are not loading
 
-## 9. 常见问题（FAQ）
+- Confirm backend is running on expected port.
+- Ensure `/api/plan` was called first (valid `eventHash` required).
 
-### Q1: 为什么点击节点没有详情？
-- 请先执行一次 `Generate Graph`，确保有 `eventHash`。
-- 检查后端是否在 `8787` 端口运行。
+### Chat returns invalid role error
 
-### Q2: 为什么 Demo 页面只有标题，不显示完整图？
-- `offer-decision` 是完整 demo 图谱。
-- 其他 demo（`interview-outcome`、`team-conflict`）目前是轻量占位，可继续扩展。
+- Use one of: `you_now`, `you_5y`, `neutral_advisor`, `custom`.
+- If `roleId=custom`, provide non-empty `customRoleTitle`.
 
-### Q3: 缓存在哪里？
-- 在 `backend/cache/`，按请求 key 写入 JSON 文件。
+### Old behavior appears after updates
 
-## 10. 下一步可扩展项
+- Restart backend and frontend dev servers.
+- Cache is file-based (`backend/cache`), so prompt-version changes are used to bust stale responses.
 
-- 接入真实 LLM（OpenAI/Anthropic）替换规则生成
-- 增加 Share Link（SQLite 持久化）
-- 增强 compare（变量贡献热度）
-- 增加“编辑某个 counterfactual 后单点重生成”
-
----
-
-更多设计与演示文档：
+## Docs
 
 - `docs/ARCHITECTURE.md`
 - `docs/DEMO.md`
+- `docs/IDEAS.md`
