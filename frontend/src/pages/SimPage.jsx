@@ -266,10 +266,15 @@ export default function SimPage() {
 
   async function handleOpenLineageWindow() {
     if (!selectedNode) return;
-    const win = window.open("", "_blank", "noopener,noreferrer,width=920,height=700");
+    const win = window.open("", "_blank", "width=920,height=700");
     if (!win) {
       toast("Popup blocked. Please allow popups for this site.", "warn");
       return;
+    }
+    try {
+      win.opener = null;
+    } catch {
+      // Ignore if browser forbids changing opener.
     }
     win.document.write("<title>EventSim Lineage</title><body><p>Loading lineage...</p></body>");
     win.document.close();
@@ -384,7 +389,8 @@ function buildLineage(nodes, nodeId) {
       title: current.title,
       one_liner: current.one_liner,
       delta: current.delta,
-      tags: Array.isArray(current.tags) ? current.tags : []
+      tags: Array.isArray(current.tags) ? current.tags : [],
+      input_text: current.type === "root" ? current.data?.eventText || "" : ""
     });
     if (!current.parentId) break;
     current = map.get(current.parentId);
@@ -449,24 +455,85 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
     }
     h2 { margin: 0 0 8px; }
     p { margin: 0 0 14px; color: var(--muted); }
-    .lineage-wrap { display: grid; gap: 10px; margin-bottom: 18px; }
+    .lineage-wrap {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding: 6px 2px 10px;
+      margin-bottom: 18px;
+      scrollbar-width: thin;
+    }
     .lineage-node {
       border: 1px solid var(--line);
       border-radius: 12px;
       background: var(--card);
       padding: 10px 12px;
       cursor: pointer;
+      min-width: 220px;
+      max-width: 260px;
+      text-align: left;
+      transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+    }
+    .lineage-node:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 18px rgba(14, 116, 144, 0.14);
+      border-color: #7dd3fc;
     }
     .lineage-node.active { border-color: var(--accent); box-shadow: 0 0 0 2px #bae6fd; }
-    .meta { color: var(--muted); font-size: 13px; margin-top: 6px; }
-    .detail {
+    .node-short {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .node-desc {
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .arrow {
+      align-self: center;
+      color: #64748b;
+      font-size: 18px;
+      user-select: none;
+    }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.38);
+      display: none;
+      place-items: center;
+      z-index: 20;
+      padding: 16px;
+    }
+    .modal-backdrop.open {
+      display: grid;
+    }
+    .detail-modal {
       border: 1px solid #cbd5e1;
       border-radius: 14px;
       background: #fff;
       padding: 14px;
+      width: min(900px, 100%);
+      max-height: min(78vh, 760px);
+      overflow-y: auto;
     }
-    .detail h3 { margin: 0 0 8px; }
-    .detail ul { margin: 8px 0; padding-left: 20px; }
+    .detail-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .detail-modal h3 { margin: 0; }
+    .detail-modal ul { margin: 8px 0; padding-left: 20px; }
+    .close-btn {
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 5px 10px;
+      cursor: pointer;
+      font: inherit;
+    }
     .chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
     .chip {
       font-size: 12px;
@@ -479,32 +546,47 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
 </head>
 <body>
   <h2>Lineage Chain</h2>
-  <p>Click any node to view details.</p>
+  <p>Nodes are shown left to right. Click a node to open details.</p>
   <div id="lineage" class="lineage-wrap"></div>
-  <div id="detail" class="detail"></div>
+  <div id="modal" class="modal-backdrop">
+    <div id="detail" class="detail-modal"></div>
+  </div>
   <script>
     const state = ${escapedData};
     const lineageEl = document.getElementById("lineage");
+    const modalEl = document.getElementById("modal");
     const detailEl = document.getElementById("detail");
     let activeId = state.lineage.length ? state.lineage[state.lineage.length - 1].id : null;
 
     function renderList() {
       lineageEl.innerHTML = "";
-      for (const node of state.lineage) {
+      state.lineage.forEach((node, idx) => {
         const item = document.createElement("button");
         item.type = "button";
         item.className = "lineage-node" + (node.id === activeId ? " active" : "");
+        const isRoot = node.id === "root";
+        const shortTitle = isRoot
+          ? (node.title || rootShortLabel(node.input_text || node.id))
+          : shortLabel(node.title || node.id);
+        const description = isRoot
+          ? (node.input_text || node.one_liner || "No description")
+          : (node.one_liner || "No description");
         item.innerHTML =
-          "<strong>" + escapeHtml(node.title || node.id) + "</strong>" +
-          '<div class="meta">Node ID: ' + escapeHtml(node.id) + "</div>" +
-          '<div class="meta">' + escapeHtml(node.one_liner || "No one-liner") + "</div>";
+          '<span class="node-short">' + escapeHtml(shortTitle) + "</span>" +
+          '<div class="node-desc">' + escapeHtml(description) + "</div>";
         item.addEventListener("click", () => {
           activeId = node.id;
           renderList();
-          renderDetail();
+          openDetailModal();
         });
         lineageEl.appendChild(item);
-      }
+        if (idx < state.lineage.length - 1) {
+          const arrow = document.createElement("span");
+          arrow.className = "arrow";
+          arrow.textContent = "→";
+          lineageEl.appendChild(arrow);
+        }
+      });
     }
 
     function renderDetail() {
@@ -517,7 +599,10 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
       const consequences = Array.isArray(details?.consequences) ? details.consequences : [];
       const tags = Array.isArray(node.tags) ? node.tags : [];
       detailEl.innerHTML =
+        '<div class="detail-head">' +
         "<h3>" + escapeHtml(node.title || node.id) + "</h3>" +
+        '<button id="closeBtn" class="close-btn" type="button">Close</button>' +
+        "</div>" +
         "<p><strong>One-liner:</strong> " + escapeHtml(node.one_liner || "-") + "</p>" +
         "<p><strong>Why it changes:</strong> " + escapeHtml(details?.why_it_changes || node.delta || "Not expanded yet") + "</p>" +
         "<p><strong>Next question:</strong> " + escapeHtml(details?.next_question || "-") + "</p>" +
@@ -527,6 +612,33 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
         (tags.length
           ? '<div class="chip-row">' + tags.map((tag) => '<span class="chip">' + escapeHtml(tag) + "</span>").join("") + "</div>"
           : "");
+      const closeBtn = document.getElementById("closeBtn");
+      if (closeBtn) {
+        closeBtn.addEventListener("click", closeDetailModal);
+      }
+    }
+
+    function openDetailModal() {
+      renderDetail();
+      modalEl.classList.add("open");
+    }
+
+    function closeDetailModal() {
+      modalEl.classList.remove("open");
+    }
+
+    function shortLabel(text) {
+      const words = String(text || "").trim().split(/\\s+/).filter(Boolean);
+      if (words.length === 0) return "Node";
+      return words.slice(0, 2).join(" ");
+    }
+
+    function rootShortLabel(text) {
+      const raw = String(text || "").trim();
+      if (!raw) return "Root";
+      const words = raw.split(/\\s+/).filter(Boolean);
+      if (words.length > 0) return words.slice(0, 3).join(" ");
+      return raw.slice(0, 10);
     }
 
     function escapeHtml(text) {
@@ -538,8 +650,14 @@ function renderLineageWindow(win, lineage = [], detailsByNodeId = {}) {
         .replace(/'/g, "&#39;");
     }
 
+    modalEl.addEventListener("click", (e) => {
+      if (e.target === modalEl) closeDetailModal();
+    });
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeDetailModal();
+    });
+
     renderList();
-    renderDetail();
   </script>
 </body>
 </html>`;

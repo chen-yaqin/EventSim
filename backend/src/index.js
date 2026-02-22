@@ -61,7 +61,7 @@ app.post("/api/plan", async (req, res) => {
   }
 
   const eventHash = hashText(eventText.trim().toLowerCase());
-  const promptVersion = "v6";
+  const promptVersion = "v7";
   const key = hashText(JSON.stringify({ t: eventText, o: options, p: promptVersion }));
   const cacheFile = path.join(CACHE_DIR, `plan_${key}.json`);
   if (useCache && fs.existsSync(cacheFile)) {
@@ -69,9 +69,16 @@ app.post("/api/plan", async (req, res) => {
     return res.json({ ...cached, meta: { ...cached.meta, cache: "hit", cacheEnabled: true } });
   }
 
+  const rootTitleGenerated = await withProviderFallback(
+    () => buildRootTitleWithClaude(eventText),
+    () => buildRootTitleFallback(eventText),
+    "root_title"
+  );
+  const rootTitle = normalizeRootTitle(rootTitleGenerated.data?.title, eventText);
+
   const generated = await withProviderFallback(
-    () => buildInitialGraphWithClaude(eventText, options),
-    () => buildInitialGraphFallback(eventText, options),
+    () => buildInitialGraphWithClaude(eventText, options, rootTitle),
+    () => buildInitialGraphFallback(eventText, options, rootTitle),
     "plan"
   );
   const payload = {
@@ -333,7 +340,7 @@ app.listen(PORT, () => {
   console.log(`[eventsim] models:`, MODEL_CONFIG);
 });
 
-async function buildInitialGraphWithClaude(eventText, options) {
+async function buildInitialGraphWithClaude(eventText, options, rootTitle = "") {
   const timeframe = options.timeframe || "1 year";
   const stakes = options.stakes || "medium";
   const goal = options.goal || "growth";
@@ -379,7 +386,7 @@ async function buildInitialGraphWithClaude(eventText, options) {
     {
       id: rootId,
       type: "root",
-      title: shortTitle(eventText),
+      title: normalizeRootTitle(rootTitle, eventText),
       delta: "Baseline event",
       one_liner: "Starting point before counterfactual changes.",
       tags: [stakes, goal],
@@ -649,7 +656,7 @@ async function callClaudeText({ model, system, messages, maxTokens }) {
   return (data?.content?.find((item) => item.type === "text")?.text || "").trim();
 }
 
-function buildInitialGraphFallback(eventText, options) {
+function buildInitialGraphFallback(eventText, options, rootTitle = "") {
   const timeframe = options.timeframe || "1 year";
   const stakes = options.stakes || "medium";
   const goal = options.goal || "growth";
@@ -658,7 +665,7 @@ function buildInitialGraphFallback(eventText, options) {
     {
       id: rootId,
       type: "root",
-      title: shortTitle(eventText),
+      title: normalizeRootTitle(rootTitle, eventText),
       delta: "Baseline event",
       one_liner: "Starting point before counterfactual changes.",
       tags: [stakes, goal],
@@ -693,6 +700,37 @@ function buildInitialGraphFallback(eventText, options) {
     edges.push({ id: `e_${rootId}_${id}`, source: rootId, target: id, label: "counterfactual" });
   }
   return { nodes, edges };
+}
+
+async function buildRootTitleWithClaude(eventText) {
+  const text = await callClaudeText({
+    model: getModelForTask("basic"),
+    system: [
+      "You are an event title compressor.",
+      "Return plain text only, no JSON.",
+      "Output exactly one short title in 2-3 words.",
+      "Use concrete nouns, no punctuation, no quotes."
+    ].join(" "),
+    messages: [{ role: "user", content: `Event:${eventText}` }],
+    maxTokens: 24
+  });
+  return { title: normalizeRootTitle(text, eventText) };
+}
+
+function buildRootTitleFallback(eventText) {
+  const keywords = extractEventKeywords(eventText, 3);
+  if (keywords.length >= 2) {
+    return { title: keywords.join(" ") };
+  }
+  const words = String(eventText || "")
+    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length >= 2) {
+    return { title: words.slice(0, 3).map(toTitleWord).join(" ") };
+  }
+  return { title: "Core Event" };
 }
 
 function buildBranchChildrenFallback(
@@ -968,6 +1006,103 @@ function normalizeDistance(distance) {
   const value = String(distance || "").toLowerCase();
   if (value === "minimal" || value === "moderate" || value === "radical") return value;
   return "moderate";
+}
+
+function normalizeRootTitle(rawTitle, eventText = "") {
+  const cleaned = String(rawTitle || "")
+    .replace(/[`"'.,;:!?()[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return words.slice(0, 3).map(toTitleWord).join(" ");
+  if (words.length === 1) {
+    const keywords = extractEventKeywords(eventText, 2);
+    if (keywords.length > 0) return [toTitleWord(words[0]), keywords[0]].slice(0, 2).join(" ");
+    return toTitleWord(words[0]);
+  }
+  return buildRootTitleFallback(eventText).title;
+}
+
+function extractEventKeywords(text, maxWords = 3) {
+  const stop = new Set([
+    "the",
+    "a",
+    "an",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "and",
+    "or",
+    "but",
+    "with",
+    "without",
+    "from",
+    "by",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "this",
+    "that",
+    "these",
+    "those",
+    "it",
+    "its",
+    "as",
+    "into",
+    "through",
+    "throughout",
+    "when",
+    "however",
+    "which",
+    "their",
+    "they",
+    "them",
+    "our",
+    "your",
+    "my",
+    "any",
+    "not",
+    "did",
+    "do",
+    "does",
+    "done",
+    "had",
+    "has",
+    "have",
+    "member",
+    "group",
+    "project",
+    "process",
+    "final",
+    "report"
+  ]);
+  const tokens = String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !stop.has(w));
+  const seen = new Set();
+  const result = [];
+  for (const token of tokens) {
+    if (seen.has(token)) continue;
+    seen.add(token);
+    result.push(toTitleWord(token));
+    if (result.length >= maxWords) break;
+  }
+  return result;
+}
+
+function toTitleWord(word) {
+  const lower = String(word || "").toLowerCase();
+  if (!lower) return "";
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
 
 function fallbackBranchTitle(parentTitle, questionHint, childLabel, distance) {
